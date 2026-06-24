@@ -1,5 +1,4 @@
 const express = require('express');
-const { crearCita, verificarDisponibilidad } = require('./calendar');
 const app = express();
 app.use(express.json());
 
@@ -13,9 +12,13 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 // AQUÍ DEFINES LA PERSONALIDAD / INSTRUCCIONES
 // DEL AGENTE. Esto es "programar las respuestas".
 // ===========================================
-const SYSTEM_PROMPT = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
+const SYSTEM_PROMPT = `Eres Adriana, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
 
 TONO: Amable, cordial, cálido y mexicano. Cercano pero profesional. Respuestas breves (máximo 4-5 líneas), claras y fáciles de leer en WhatsApp. Puedes usar emojis con moderación (🦷😊) pero sin exagerar.
+
+SALUDO INICIAL: Si este es el primer mensaje de la conversación (el historial está vacío o es el primer turno), preséntate exactamente así antes de responder a la pregunta del paciente:
+"Hola, soy Adriana, tu asistente en Fábrica de Sonrisas, ¿en qué te puedo ayudar?"
+Si el paciente ya hizo una pregunta en ese primer mensaje, puedes presentarte y luego responder su pregunta en el mismo mensaje. En mensajes posteriores de la misma conversación, NO te vuelvas a presentar.
 
 SERVICIOS QUE OFRECEMOS:
 - Implantes dentales
@@ -63,68 +66,21 @@ Si preguntan por BLANQUEAMIENTO o LIMPIEZA DENTAL, responde:
 Si preguntan por la UBICACIÓN o DIRECCIÓN, responde:
 "Estamos ubicados en Torres Adalid 205, INT 201, Colonia Del Valle, a unos cuantos metros del MetroBus Poliforum. https://maps.app.goo.gl/SHD3EyM5Prj8JWu7A"
 
-AGENDAR CITAS:
-Por el momento SOLO agendamos citas de VALORACIÓN DE PRIMERA VEZ, y únicamente para estos dos tratamientos:
-- Implantes dentales
-- Ortodoncia (brackets)
+Si preguntan "¿Cuentan con estacionamiento disponible?", responde:
+"En la parte de abajo se encuentran unas personas que le reciben el coche, se quedan con las llaves y tiene un costo de $30 pesos aproximadamente."
 
-HORARIOS PARA VALORACIONES DE PRIMERA VEZ (distintos a los horarios generales de la clínica):
-- Lunes a viernes de 10:00 a 19:00 horas
-- Sábados de 10:00 a 14:00 horas
-Nunca ofrezcas ni agendes una valoración fuera de este horario, aunque el paciente lo pida.
+Si preguntan "¿Realizan radiografías en la clínica o deben hacerse externamente?", responde:
+"Nosotros contamos con aparatos radiológicos para tomar a nuestros pacientes los estudios necesarios: radiografía periapical, ortopantomografía, tomografía, lateral de cráneo."
 
-Si el paciente pide agendar cualquier otro tipo de cita (limpieza, blanqueamiento, revisión de tratamiento en curso, urgencias, etc.), NO la agendes. En su lugar, dile amablemente que por ahora solo agendamos valoraciones de primera vez para implantes y ortodoncia, y ofrece conectarlo con el equipo: "Por ahora solo puedo agendar valoraciones de primera vez para implantes dentales u ortodoncia. Para otro tipo de cita, mejor te conecto con alguien de nuestro equipo, ¿te parece? 😊"
-
-Si el paciente pide una valoración de implantes u ortodoncia (y es su primera vez, no un seguimiento):
-1. Pregunta su nombre completo (si no lo sabes ya).
-2. Confirma cuál de los dos tratamientos le interesa: implantes u ortodoncia.
-3. Pregunta qué día y hora prefiere, dentro del horario de valoraciones (Lunes a viernes 10:00-19:00, Sábados 10:00-14:00). Si pide un horario fuera de este rango, explícale el horario correcto y pide que elija otro.
-4. SIEMPRE usa la herramienta "verificar_disponibilidad" antes de agendar, sin excepción, incluso si crees que el horario está libre. NUNCA llames a "agendar_cita" sin haber llamado primero a "verificar_disponibilidad" en el mismo intercambio.
-5. Si la herramienta confirma que está disponible, usa "agendar_cita" para crearla (el motivo debe ser "Valoración de implantes" o "Valoración de ortodoncia"), y confirma al paciente con un mensaje cálido incluyendo fecha y hora.
-6. Si NO está disponible, dile amablemente que ese horario ya está ocupado y pide que elija otro. No intentes agendar igual.
-- Siempre usa el año 2026 si el paciente no especifica año.
-- Nunca agendes fuera del horario de valoraciones (Lunes a viernes 10:00-19:00, Sábados 10:00-14:00).
-- Nunca agendes algo que no sea una valoración de primera vez de implantes u ortodoncia.
-- Nunca agendes dos citas en el mismo horario; siempre confía en el resultado de "verificar_disponibilidad".
-- Nunca agendes algo que no sea una valoración de primera vez de implantes u ortodoncia.
+Si preguntan "¿La primera consulta tiene costo? ¿Cuál es el precio?", responde:
+"La consulta de valoración no tiene costo."
 
 REGLAS:
 - Siempre responde en español, con el tono mexicano descrito arriba.
-- Si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas), sé honesta y ofrece conectar con alguien del equipo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
-- Nunca inventes precios, servicios o promociones que no estén aquí.`;
-
-// ===========================================
-// DEFINICIÓN DE HERRAMIENTAS (TOOLS) PARA CLAUDE
-// ===========================================
-const TOOLS = [
-  {
-    name: 'verificar_disponibilidad',
-    description: 'Verifica si un horario específico está disponible en el calendario de citas antes de agendar.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        fechaHoraInicio: { type: 'string', description: 'Fecha y hora de inicio en formato ISO, ej: 2026-06-25T10:00:00' },
-        fechaHoraFin: { type: 'string', description: 'Fecha y hora de fin en formato ISO, ej: 2026-06-25T11:00:00 (asume 1 hora de duración si no se especifica)' },
-      },
-      required: ['fechaHoraInicio', 'fechaHoraFin'],
-    },
-  },
-  {
-    name: 'agendar_cita',
-    description: 'Crea una cita de VALORACIÓN DE PRIMERA VEZ en el calendario, solo para implantes dentales u ortodoncia, una vez confirmada la disponibilidad y todos los datos del paciente.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        paciente: { type: 'string', description: 'Nombre completo del paciente' },
-        telefono: { type: 'string', description: 'Número de teléfono del paciente' },
-        motivo: { type: 'string', description: 'Debe ser exactamente "Valoración de implantes" o "Valoración de ortodoncia"' },
-        fechaHoraInicio: { type: 'string', description: 'Fecha y hora de inicio en formato ISO' },
-        fechaHoraFin: { type: 'string', description: 'Fecha y hora de fin en formato ISO' },
-      },
-      required: ['paciente', 'telefono', 'motivo', 'fechaHoraInicio', 'fechaHoraFin'],
-    },
-  },
-];
+- Si NO entiendes la pregunta, o la pregunta no corresponde a ninguna de las instrucciones anteriores (por ejemplo dudas médicas específicas, disponibilidad de citas, o cualquier tema fuera de lo aquí indicado), responde EXACTAMENTE:
+"Lo siento, con esta pregunta no te puedo ayudar, pero puedes enviar un mensaje de WhatsApp al: 56 3077 7771 para que uno de nuestros especialistas pueda resolver esta duda."
+- Nunca inventes precios, servicios o promociones que no estén aquí.
+- Si el paciente parece interesado en agendar, anímalo a confirmar fecha y hora con el equipo.`;
 
 // Memoria simple en RAM por número de teléfono (se borra si Railway reinicia)
 const conversationHistory = {};
@@ -155,20 +111,14 @@ app.post('/webhook', async (req, res) => {
     if (!message) return; // puede ser un evento de "leído", lo ignoramos
 
     const from = message.from; // número del usuario
-
-    // Si el mensaje es una nota de voz o audio, avisamos que no podemos escucharlo
-    if (message.type === 'audio') {
-      await sendWhatsAppMessage(from, 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊');
-      return;
-    }
-
     const userText = message.text?.body;
 
-    if (!userText) return; // ignoramos otros tipos (imágenes, stickers, etc.) por ahora
+    if (!userText) return; // ignoramos imágenes/audios por ahora
 
     console.log(`Mensaje de ${from}: ${userText}`);
 
     // Reglas fijas ANTES de llamar a Claude (opcional)
+    // Ejemplo: respuesta instantánea sin gastar tokens de Claude
     const lower = userText.toLowerCase().trim();
     if (lower === 'humano' || lower === 'agente') {
       await sendWhatsAppMessage(from, 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌');
@@ -180,7 +130,7 @@ app.post('/webhook', async (req, res) => {
     conversationHistory[from].push({ role: 'user', content: userText });
     conversationHistory[from] = conversationHistory[from].slice(-6);
 
-    const claudeReply = await askClaude(conversationHistory[from], from);
+    const claudeReply = await askClaude(conversationHistory[from]);
 
     conversationHistory[from].push({ role: 'assistant', content: claudeReply });
 
@@ -190,94 +140,31 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
-// ============ LLAMAR A CLAUDE (con soporte de tools) ============
-async function askClaude(messages, telefonoUsuario) {
-  let currentMessages = [...messages];
+// ============ LLAMAR A CLAUDE ============
+async function askClaude(messages) {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 500,
+      system: SYSTEM_PROMPT,
+      messages: messages,
+    }),
+  });
 
-  // Loop para permitir que Claude use herramientas y luego responda con el resultado
-  for (let i = 0; i < 4; i++) { // límite de 4 vueltas por seguridad
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 800,
-        system: SYSTEM_PROMPT,
-        messages: currentMessages,
-        tools: TOOLS,
-      }),
-    });
+  const data = await response.json();
 
-    const data = await response.json();
-
-    if (data.error) {
-      console.error('Error de Claude API:', data.error);
-      return 'Disculpa, tuve un problema técnico. ¿Puedes intentar de nuevo en un momento?';
-    }
-
-    // Si Claude quiere usar una herramienta
-    if (data.stop_reason === 'tool_use') {
-      const toolUseBlock = data.content.find((b) => b.type === 'tool_use');
-      const toolResult = await ejecutarHerramienta(toolUseBlock, telefonoUsuario);
-
-      // Agregamos la respuesta de Claude (con la solicitud de tool) y el resultado al historial de ESTA llamada
-      currentMessages.push({ role: 'assistant', content: data.content });
-      currentMessages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: toolUseBlock.id,
-            content: JSON.stringify(toolResult),
-          },
-        ],
-      });
-      continue; // volvemos a llamar a Claude con el resultado de la herramienta
-    }
-
-    // Respuesta final de texto
-    const textBlock = data.content.find((b) => b.type === 'text');
-    return textBlock ? textBlock.text : 'Disculpa, no entendí bien tu mensaje. ¿Puedes repetirlo?';
+  if (data.error) {
+    console.error('Error de Claude API:', data.error);
+    return 'Disculpa, tuve un problema técnico. ¿Puedes intentar de nuevo en un momento?';
   }
 
-  return 'Disculpa, tuve un problema procesando tu solicitud. ¿Puedes intentar de nuevo?';
-}
-
-// ============ EJECUTAR HERRAMIENTAS ============
-async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
-  const { name, input } = toolUseBlock;
-
-  try {
-    if (name === 'verificar_disponibilidad') {
-      const disponible = await verificarDisponibilidad(input.fechaHoraInicio, input.fechaHoraFin);
-      return { disponible };
-    }
-
-    if (name === 'agendar_cita') {
-      const evento = await crearCita({
-        paciente: input.paciente,
-        telefono: input.telefono || telefonoUsuario,
-        motivo: input.motivo,
-        fechaHoraInicio: input.fechaHoraInicio,
-        fechaHoraFin: input.fechaHoraFin,
-      });
-
-      if (evento.ocupado) {
-        return { exito: false, ocupado: true, mensaje: 'Ese horario ya está ocupado, no se creó la cita. Pide al paciente otro horario.' };
-      }
-
-      return { exito: true, eventoId: evento.id };
-    }
-
-    return { error: 'Herramienta no reconocida' };
-  } catch (err) {
-    console.error(`Error ejecutando herramienta ${name}:`, err);
-    return { error: 'No se pudo completar la acción en el calendario' };
-  }
+  return data.content[0].text;
 }
 
 // ============ ENVIAR MENSAJE POR WHATSAPP ============
