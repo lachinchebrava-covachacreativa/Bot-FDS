@@ -44,3 +44,13 @@ async function crearCita({ paciente, telefono, motivo, fechaHoraInicio, fechaHor
 async function verificarDisponibilidad(fechaHoraInicio, fechaHoraFin) {
   const respuesta = await calendar.events.list({
     calendarId: GOOGLE_CALENDAR_ID,
+    timeMin: fechaHoraInicio,
+    timeMax: fechaHoraFin,
+    timeZone: 'America/Mexico_City',
+    singleEvents: true,
+  });
+
+  return respuesta.data.items.length === 0;
+}
+
+module.exports = { crearCita, verificarDisponibilidad };
