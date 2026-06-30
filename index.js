@@ -1,5 +1,6 @@
 const express = require('express');
 const { crearCita, verificarDisponibilidad } = require('./calendar');
+const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes } = require('./db');
 const app = express();
 app.use(express.json());
 
@@ -74,6 +75,9 @@ Si preguntan por la GARANTÍA del implante, responde:
 
 Si preguntan si la CORONA ES PROVISIONAL, responde:
 "Sí, la corona que incluye es de resina."
+
+Si preguntan CUÁL DE LOS DOS MATERIALES ES MEJOR (resina/PMMA vs zirconio), responde:
+"Los dos son buenos, depende del cuidado del paciente. La corona de PMMA es de plástico resistente y la corona de zirconio es de un mineral. Pero sí, el cuidado del paciente es fundamental."
 
 Si preguntan qué NO INCLUYE el tratamiento, responde:
 "No incluye:
@@ -208,7 +212,10 @@ app.post('/webhook', async (req, res) => {
 
     // Si el mensaje es una nota de voz o audio, avisamos que no podemos escucharlo
     if (message.type === 'audio') {
-      await sendWhatsAppMessage(from, 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊');
+      const avisoVoz = 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊';
+      await sendWhatsAppMessage(from, avisoVoz);
+      await guardarMensaje(from, 'user', '[nota de voz recibida]');
+      await guardarMensaje(from, 'assistant', avisoVoz);
       return;
     }
 
@@ -217,11 +224,14 @@ app.post('/webhook', async (req, res) => {
     if (!userText) return; // ignoramos otros tipos (imágenes, stickers, etc.) por ahora
 
     console.log(`Mensaje de ${from}: ${userText}`);
+    await guardarMensaje(from, 'user', userText);
 
     // Reglas fijas ANTES de llamar a Claude (opcional)
     const lower = userText.toLowerCase().trim();
     if (lower === 'humano' || lower === 'agente') {
-      await sendWhatsAppMessage(from, 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌');
+      const respuestaFija = 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌';
+      await sendWhatsAppMessage(from, respuestaFija);
+      await guardarMensaje(from, 'assistant', respuestaFija);
       return;
     }
 
@@ -235,6 +245,7 @@ app.post('/webhook', async (req, res) => {
     conversationHistory[from].push({ role: 'assistant', content: claudeReply });
 
     await sendWhatsAppMessage(from, claudeReply);
+    await guardarMensaje(from, 'assistant', claudeReply);
   } catch (err) {
     console.error('Error procesando mensaje:', err);
   }
@@ -359,6 +370,123 @@ app.get('/', (req, res) => {
   res.send('Bot de WhatsApp con Claude funcionando ✅');
 });
 
-app.listen(PORT, () => {
+// ============ PANEL DE CONVERSACIONES ============
+app.get('/conversaciones', async (req, res) => {
+  const clave = req.query.clave;
+  if (clave !== process.env.PANEL_CLAVE) {
+    return res.status(401).send('<h2 style="font-family:sans-serif;padding:2rem">Acceso no autorizado. Agrega ?clave=TU_CLAVE a la URL.</h2>');
+  }
+
+  try {
+    const mensajes = await obtenerTodosLosMensajes();
+
+    // Agrupar por teléfono
+    const conversaciones = {};
+    for (const msg of mensajes) {
+      if (!conversaciones[msg.telefono]) conversaciones[msg.telefono] = [];
+      conversaciones[msg.telefono].push(msg);
+    }
+
+    const telefonos = Object.keys(conversaciones);
+
+    let html = `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Conversaciones — Bot FDS</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, sans-serif; background: #f0f2f5; color: #111; }
+    header { background: #1a6fa8; color: white; padding: 1rem 1.5rem; display: flex; align-items: center; gap: 0.75rem; }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header span { font-size: 0.85rem; opacity: 0.8; }
+    .layout { display: flex; height: calc(100vh - 56px); }
+    .sidebar { width: 300px; min-width: 300px; background: white; border-right: 1px solid #e0e0e0; overflow-y: auto; }
+    .contacto { padding: 0.9rem 1rem; border-bottom: 1px solid #f0f0f0; cursor: pointer; transition: background 0.15s; }
+    .contacto:hover, .contacto.activo { background: #e8f4fd; }
+    .contacto .num { font-size: 0.85rem; font-weight: 600; color: #1a6fa8; }
+    .contacto .preview { font-size: 0.78rem; color: #666; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .contacto .fecha { font-size: 0.72rem; color: #999; margin-top: 2px; }
+    .chat { flex: 1; display: flex; flex-direction: column; }
+    .chat-header { padding: 0.85rem 1.2rem; background: white; border-bottom: 1px solid #e0e0e0; font-size: 0.9rem; font-weight: 600; color: #1a6fa8; }
+    .mensajes { flex: 1; overflow-y: auto; padding: 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .burbuja { max-width: 70%; padding: 0.55rem 0.85rem; border-radius: 12px; font-size: 0.88rem; line-height: 1.45; }
+    .burbuja.user { background: white; border: 1px solid #e0e0e0; align-self: flex-start; border-bottom-left-radius: 3px; }
+    .burbuja.assistant { background: #d9f7be; align-self: flex-end; border-bottom-right-radius: 3px; }
+    .burbuja .hora { font-size: 0.7rem; color: #999; margin-top: 3px; text-align: right; }
+    .placeholder { flex: 1; display: flex; align-items: center; justify-content: center; color: #aaa; font-size: 0.9rem; }
+    .vacio { padding: 2rem; text-align: center; color: #aaa; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+<header>
+  <div>🦷</div>
+  <div>
+    <h1>Panel de conversaciones</h1>
+    <span>${telefonos.length} contacto${telefonos.length !== 1 ? 's' : ''}</span>
+  </div>
+</header>
+<div class="layout">
+  <div class="sidebar" id="sidebar">`;
+
+    if (telefonos.length === 0) {
+      html += `<div class="vacio">Aún no hay mensajes registrados.</div>`;
+    }
+
+    for (const tel of telefonos) {
+      const msgs = conversaciones[tel];
+      const ultimo = msgs[msgs.length - 1];
+      const preview = ultimo.contenido.length > 50 ? ultimo.contenido.substring(0, 50) + '…' : ultimo.contenido;
+      const fecha = new Date(ultimo.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      html += `<div class="contacto" onclick="verChat('${tel}')" id="c-${tel}">
+        <div class="num">+${tel}</div>
+        <div class="preview">${preview}</div>
+        <div class="fecha">${fecha}</div>
+      </div>`;
+    }
+
+    html += `</div>
+  <div class="chat" id="chat-area">
+    <div class="placeholder">← Selecciona una conversación</div>
+  </div>
+</div>
+
+<script>
+const data = ${JSON.stringify(conversaciones)};
+
+function verChat(tel) {
+  document.querySelectorAll('.contacto').forEach(el => el.classList.remove('activo'));
+  const item = document.getElementById('c-' + tel);
+  if (item) item.classList.add('activo');
+
+  const msgs = data[tel] || [];
+  let html = '<div class="chat-header">+' + tel + ' — ' + msgs.length + ' mensajes</div><div class="mensajes" id="msgs">';
+  for (const m of msgs) {
+    const hora = new Date(m.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const fecha = new Date(m.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    html += '<div class="burbuja ' + m.rol + '"><div>' + m.contenido.replace(/</g,'&lt;') + '</div><div class="hora">' + fecha + ' ' + hora + '</div></div>';
+  }
+  html += '</div>';
+  document.getElementById('chat-area').innerHTML = html;
+  const msgsDiv = document.getElementById('msgs');
+  if (msgsDiv) msgsDiv.scrollTop = msgsDiv.scrollHeight;
+}
+</script>
+</body></html>`;
+
+    res.send(html);
+  } catch (err) {
+    console.error('Error cargando conversaciones:', err);
+    res.status(500).send('<h2 style="font-family:sans-serif;padding:2rem">Error cargando conversaciones. Verifica que la base de datos esté conectada.</h2>');
+  }
+});
+
+app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
+  try {
+    await inicializarDB();
+  } catch (err) {
+    console.error('Error inicializando la base de datos:', err);
+  }
 });
