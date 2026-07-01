@@ -14,7 +14,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 // AQUÍ DEFINES LA PERSONALIDAD / INSTRUCCIONES
 // DEL AGENTE. Esto es "programar las respuestas".
 // ===========================================
-const SYSTEM_PROMPT = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
+const SYSTEM_PROMPT_BASE = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
 
 TONO: Amable, cordial, cálido y mexicano. Cercano pero profesional. Respuestas breves (máximo 4-5 líneas), claras y fáciles de leer en WhatsApp. Puedes usar emojis con moderación (🦷😊) pero sin exagerar.
 
@@ -156,6 +156,18 @@ REGLAS:
 - Si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas), sé honesta y ofrece conectar con alguien del equipo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
 - Nunca inventes precios, servicios o promociones que no estén aquí.`;
 
+function getSystemPrompt() {
+  const fechaHoy = new Date().toLocaleDateString('es-MX', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    timeZone: 'America/Mexico_City'
+  });
+  const ahora = new Date().toLocaleTimeString('es-MX', {
+    hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Mexico_City'
+  });
+  return `La fecha de hoy en Ciudad de México es: ${fechaHoy}, hora actual: ${ahora}. Usa esta fecha y hora como referencia para interpretar correctamente cuando el paciente diga "mañana", "el lunes", "la próxima semana", "hoy", etc. Nunca sugieras ni agendes fechas que ya pasaron. Si el paciente pide una cita para "hoy" verifica que la hora solicitada no haya pasado ya.\n\n` + SYSTEM_PROMPT_BASE;
+}
+
 // ===========================================
 // DEFINICIÓN DE HERRAMIENTAS (TOOLS) PARA CLAUDE
 // ===========================================
@@ -276,7 +288,7 @@ async function askClaude(messages, telefonoUsuario) {
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 800,
-        system: SYSTEM_PROMPT,
+        system: getSystemPrompt(),
         messages: currentMessages,
         tools: TOOLS,
       }),
