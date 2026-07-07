@@ -1,0 +1,96 @@
+const { obtenerCitasManana, marcarRecordatorioEnviado } = require('./db');
+
+const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
+
+// Nombre exacto de tu plantilla aprobada en Meta
+const NOMBRE_PLANTILLA = 'recordatorio_cita';
+
+// Formatea la fecha en español para el mensaje
+function formatearFecha(fechaISO) {
+  return new Date(fechaISO).toLocaleDateString('es-MX', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'America/Mexico_City',
+  });
+}
+
+// Formatea la hora en formato 12 hrs
+function formatearHora(fechaISO) {
+  return new Date(fechaISO).toLocaleTimeString('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/Mexico_City',
+  });
+}
+
+// Envía el recordatorio usando la plantilla de Meta
+async function enviarRecordatorio(cita) {
+  const fecha = formatearFecha(cita.fecha_hora);
+  const hora = formatearHora(cita.fecha_hora);
+
+  const body = {
+    messaging_product: 'whatsapp',
+    to: cita.telefono,
+    type: 'template',
+    template: {
+      name: NOMBRE_PLANTILLA,
+      language: { code: 'es_MX' },
+      components: [
+        {
+          type: 'body',
+          parameters: [
+            { type: 'text', text: cita.nombre },
+            { type: 'text', text: cita.motivo },
+            { type: 'text', text: fecha },
+            { type: 'text', text: hora },
+          ],
+        },
+      ],
+    },
+  };
+
+  const res = await fetch(
+    `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${WHATSAPP_TOKEN}`,
+      },
+      body: JSON.stringify(body),
+    }
+  );
+
+  const data = await res.json();
+  if (data.error) {
+    console.error(`Error enviando recordatorio a ${cita.telefono}:`, data.error);
+    return false;
+  }
+
+  console.log(`Recordatorio enviado a ${cita.nombre} (${cita.telefono})`);
+  return true;
+}
+
+// Función principal: revisa citas de mañana y manda recordatorios
+async function procesarRecordatorios() {
+  console.log('Procesando recordatorios...');
+  try {
+    const citas = await obtenerCitasManana();
+    console.log(`Citas encontradas para mañana: ${citas.length}`);
+
+    for (const cita of citas) {
+      const enviado = await enviarRecordatorio(cita);
+      if (enviado) {
+        await marcarRecordatorioEnviado(cita.id);
+      }
+    }
+
+    console.log('Recordatorios procesados.');
+  } catch (err) {
+    console.error('Error procesando recordatorios:', err);
+  }
+}
+
+module.exports = { procesarRecordatorios };
