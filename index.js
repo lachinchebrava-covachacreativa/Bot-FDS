@@ -1,6 +1,7 @@
 const express = require('express');
 const { crearCita, verificarDisponibilidad } = require('./calendar');
-const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes } = require('./db');
+const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita } = require('./db');
+const { procesarRecordatorios } = require('./recordatorios');
 const app = express();
 app.use(express.json());
 
@@ -352,6 +353,14 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
         return { exito: false, ocupado: true, mensaje: 'Ese horario ya está ocupado, no se creó la cita. Pide al paciente otro horario.' };
       }
 
+      // Guardar la cita en la base de datos para recordatorios
+      await guardarCita(
+        telefonoUsuario,
+        input.paciente,
+        input.motivo,
+        input.fechaHoraInicio
+      );
+
       return { exito: true, eventoId: evento.id };
     }
 
@@ -510,4 +519,18 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error('Error inicializando la base de datos:', err);
   }
+
+  // Ejecutar recordatorios todos los días a las 10:00 AM hora México
+  const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const proximasDecena = new Date(ahora);
+  proximasDecena.setHours(10, 0, 0, 0);
+  if (proximasDecena <= ahora) proximasDecena.setDate(proximasDecena.getDate() + 1);
+
+  const msHastaLas10 = proximasDecena - ahora;
+  console.log(`Próximo envío de recordatorios en ${Math.round(msHastaLas10 / 1000 / 60)} minutos`);
+
+  setTimeout(() => {
+    procesarRecordatorios(); // primera ejecución
+    setInterval(procesarRecordatorios, 24 * 60 * 60 * 1000); // luego cada 24 horas
+  }, msHastaLas10);
 });
