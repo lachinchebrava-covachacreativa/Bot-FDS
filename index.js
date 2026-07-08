@@ -1,6 +1,6 @@
 const express = require('express');
-const { crearCita, verificarDisponibilidad } = require('./calendar');
-const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita } = require('./db');
+const { crearCita, verificarDisponibilidad, cancelarEventoCalendar, buscarEventoCalendar, reagendarEventoCalendar } = require('./calendar');
+const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita, obtenerCitaPorTelefono, cancelarCitaDB, reagendarCitaDB } = require('./db');
 const { procesarRecordatorios } = require('./recordatorios');
 const app = express();
 app.use(express.json());
@@ -152,6 +152,19 @@ Si el paciente pide una valoración de implantes u ortodoncia (y es su primera v
 - Nunca agendes algo que no sea una valoración de primera vez de implantes u ortodoncia.
 - Nunca llames a "agendar_cita" sin que el paciente haya confirmado explícitamente el resumen primero.
 
+CANCELAR O REAGENDAR CITAS:
+Si el paciente quiere cancelar su cita:
+1. Confirma que quiere cancelar preguntando: "¿Confirmas que deseas cancelar tu cita? Esta acción no se puede deshacer 😊"
+2. Solo si confirma, usa la herramienta "cancelar_cita"
+3. Confirma con un mensaje cálido: "Tu cita ha sido cancelada. Si en algún momento quieres reagendar, aquí estamos 🦷"
+
+Si el paciente quiere reagendar su cita:
+1. Pregunta la nueva fecha y hora que prefiere (dentro del horario de valoraciones)
+2. Usa "verificar_disponibilidad" para confirmar que el nuevo horario está libre
+3. Muestra un resumen y pide confirmación antes de reagendar
+4. Solo si confirma, usa "reagendar_cita"
+5. Confirma con un mensaje cálido incluyendo la nueva fecha y hora
+
 REGLAS:
 - Siempre responde en español, con el tono mexicano descrito arriba.
 - Si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas), sé honesta y ofrece conectar con alguien del equipo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
@@ -198,6 +211,30 @@ const TOOLS = [
         fechaHoraFin: { type: 'string', description: 'Fecha y hora de fin en formato ISO' },
       },
       required: ['paciente', 'telefono', 'motivo', 'fechaHoraInicio', 'fechaHoraFin'],
+    },
+  },
+  {
+    name: 'cancelar_cita',
+    description: 'Cancela la cita activa del paciente en Google Calendar y en la base de datos. Úsala solo cuando el paciente confirme explícitamente que quiere cancelar.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        telefono: { type: 'string', description: 'Número de teléfono del paciente' },
+      },
+      required: ['telefono'],
+    },
+  },
+  {
+    name: 'reagendar_cita',
+    description: 'Reagenda la cita activa del paciente a una nueva fecha y hora. Verifica disponibilidad primero con verificar_disponibilidad antes de llamar esta herramienta.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        telefono: { type: 'string', description: 'Número de teléfono del paciente' },
+        nuevaFechaHoraInicio: { type: 'string', description: 'Nueva fecha y hora de inicio en formato ISO' },
+        nuevaFechaHoraFin: { type: 'string', description: 'Nueva fecha y hora de fin en formato ISO' },
+      },
+      required: ['telefono', 'nuevaFechaHoraInicio', 'nuevaFechaHoraFin'],
     },
   },
 ];
@@ -364,6 +401,26 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
       return { exito: true, eventoId: evento.id };
     }
 
+    if (name === 'cancelar_cita') {
+      const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
+      if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
+      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora);
+      if (evento) await cancelarEventoCalendar(evento.id);
+      await cancelarCitaDB(cita.id);
+      return { exito: true, mensaje: `Cita de ${cita.nombre} cancelada exitosamente.` };
+    }
+
+    if (name === 'reagendar_cita') {
+      const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
+      if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
+      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora);
+      if (evento) {
+        await reagendarEventoCalendar(evento.id, input.nuevaFechaHoraInicio, input.nuevaFechaHoraFin);
+      }
+      await reagendarCitaDB(cita.id, input.nuevaFechaHoraInicio);
+      return { exito: true, mensaje: `Cita reagendada exitosamente para ${input.nuevaFechaHoraInicio}.` };
+    }
+
     return { error: 'Herramienta no reconocida' };
   } catch (err) {
     console.error(`Error ejecutando herramienta ${name}:`, err);
@@ -468,12 +525,21 @@ app.get('/conversaciones', async (req, res) => {
       const msgs = conversaciones[tel];
       const ultimo = msgs[msgs.length - 1];
       const preview = ultimo.contenido.length > 50 ? ultimo.contenido.substring(0, 50) + '…' : ultimo.contenido;
-      const fecha = new Date(ultimo.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const fecha = new Date(ultimo.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' });
       html += `<div class="contacto" onclick="verChat('${tel}')" id="c-${tel}">
         <div class="num">+${tel}</div>
         <div class="preview">${preview}</div>
         <div class="fecha">${fecha}</div>
       </div>`;
+    }
+
+    // Preformatear fechas con zona horaria de México antes de mandar al navegador
+    for (const tel of Object.keys(conversaciones)) {
+      conversaciones[tel] = conversaciones[tel].map(m => ({
+        ...m,
+        hora_fmt: new Date(m.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Mexico_City' }),
+        fecha_fmt: new Date(m.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', timeZone: 'America/Mexico_City' }),
+      }));
     }
 
     html += `</div>
@@ -493,9 +559,7 @@ function verChat(tel) {
   const msgs = data[tel] || [];
   let html = '<div class="chat-header">+' + tel + ' — ' + msgs.length + ' mensajes</div><div class="mensajes" id="msgs">';
   for (const m of msgs) {
-    const hora = new Date(m.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-    const fecha = new Date(m.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
-    html += '<div class="burbuja ' + m.rol + '"><div>' + m.contenido.replace(/</g,'&lt;') + '</div><div class="hora">' + fecha + ' ' + hora + '</div></div>';
+    html += '<div class="burbuja ' + m.rol + '"><div>' + m.contenido.replace(/</g,'&lt;') + '</div><div class="hora">' + m.fecha_fmt + ' ' + m.hora_fmt + '</div></div>';
   }
   html += '</div>';
   document.getElementById('chat-area').innerHTML = html;
