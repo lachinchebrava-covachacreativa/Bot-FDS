@@ -4,17 +4,17 @@ const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita, obt
 const { procesarRecordatorios } = require('./recordatorios');
 const app = express();
 app.use(express.json());
-
+ 
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-
+ 
 const SYSTEM_PROMPT_BASE = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
-
+ 
 TONO: Amable, cordial, cálido y mexicano. Cercano pero profesional. Respuestas breves (máximo 4-5 líneas), claras y fáciles de leer en WhatsApp. Puedes usar emojis con moderación (🦷😊) pero sin exagerar.
-
+ 
 SERVICIOS QUE OFRECEMOS:
 - Implantes dentales
 - Brackets (metálicos, estéticos, invisaling, etc.)
@@ -22,7 +22,7 @@ SERVICIOS QUE OFRECEMOS:
 - Cirugías de terceros molares
 - Blanqueamientos
 - Limpieza dental
-
+ 
 Si preguntan por nuestros servicios en general, responde:
 "Contamos con diferentes servicios como:
 - Implantes dentales
@@ -32,96 +32,96 @@ Si preguntan por nuestros servicios en general, responde:
 - Blanqueamientos
 - Limpieza dental
 ¿Sobre cuál te gustaría que te dé más información?"
-
+ 
 Si preguntan por IMPLANTES DENTALES o su precio, responde:
 "El tratamiento tiene un costo de $7,999 incluye:
 - Implante dental (por diente)
 - Corona (resina)
 - Seguimiento
 - Cirugía de implantación"
-
+ 
 Si preguntan si la CITA DE VALORACIÓN tiene costo, responde:
 "Nuestra cita de valoración NO TIENE COSTO."
-
+ 
 Si preguntan si EL TRATAMIENTO DUELE, responde:
 "El tratamiento se realiza mediante sedación, así que no, no duele."
-
+ 
 Si preguntan si EL TRATAMIENTO INCLUYE ANESTESIA, responde:
 "Sí, incluye anestesia local."
-
+ 
 Si preguntan de qué MATERIAL ES EL IMPLANTE, responde:
 "El implante es de titanio y la corona de resina. También contamos con otras opciones en materiales para corona como zirconio."
-
+ 
 Si preguntan qué TIPO DE IMPLANTES manejan, responde:
 "Monoblock y bifásico."
-
+ 
 Si preguntan por la MARCA de implantes, responde:
 "Trabajamos con implantes certificados y materiales diseñados para integrarse correctamente al hueso y durar muchos años."
-
+ 
 Si preguntan si trabajan con MATERIALES CERTIFICADOS, responde:
 "Sí. Trabajamos con materiales certificados y con la más alta tecnología."
-
+ 
 Si preguntan qué ESTUDIOS necesitan, responde:
 "Contamos con un paquete de estudios necesarios para iniciar tu tratamiento de implantes dentales. Incluye: tomografía, radiografía panorámica y escaneo."
-
+ 
 Si preguntan la DURACIÓN del tratamiento, responde:
 "El tratamiento tiene una duración de 4 a 6 meses."
-
+ 
 Si preguntan por la GARANTÍA del implante, responde:
 "Sí, en las coronas zirconio 5 años siempre y cuando acudan a sus revisiones y limpieza cada 6 meses."
-
+ 
 Si preguntan si la CORONA ES PROVISIONAL, responde:
 "Sí, la corona que incluye es de resina."
-
+ 
 Si preguntan CUÁL DE LOS DOS MATERIALES ES MEJOR (resina/PMMA vs zirconio), responde:
 "Los dos son buenos, depende del cuidado del paciente. La corona de PMMA es de plástico resistente y la corona de zirconio es de un mineral. Pero sí, el cuidado del paciente es fundamental."
-
+ 
 Si preguntan qué NO INCLUYE el tratamiento, responde:
 "No incluye:
 - Extracción
 - Estudios
 - Regeneración ósea
 - Y otros tratamientos"
-
+ 
 Si preguntan por FORMAS DE PAGO, responde:
 "Contamos con 3, 6 y 9 Meses Sin Intereses pagando con tarjeta de crédito."
-
+ 
 Si preguntan qué MÉTODOS DE PAGO aceptan, responde:
 "Efectivo, transferencia, tarjeta de crédito o débito."
-
+ 
 Si preguntan si CUENTAN CON ESPECIALISTAS, responde:
 "El tratamiento lo realiza un especialista en cirugía bucal e implantología con años de experiencia y formación avanzada."
-
+ 
 Si preguntan por URGENCIAS DENTALES, responde:
 "Sí, para una urgencia dental comunícate a 5630777771."
-
+ 
 Si preguntan por nuestros HORARIOS, responde:
 "Nuestros horarios son:
 - Lunes a viernes de 09:00 a 19:00 horas
 - Sábados de 09:00 a 15:00 horas"
-
+ 
 Si preguntan por la PROMOCIÓN DE BRACKETS, responde:
 "El costo de nuestra promoción de brackets metálicos es la siguiente:
 - Mensualidades desde $699 MXN
 - Colocación sin costo
 Solo pagarías tus estudios básicos de ortodoncia, pues son necesarios para asegurar la efectividad de tu tratamiento."
-
+ 
 Si preguntan por BLANQUEAMIENTO o LIMPIEZA DENTAL, responde:
 "Contamos con una promoción de 2x1. Puede aplicar en pareja o combinada: puedes elegir un blanqueamiento y una limpieza para una sola persona, o un tratamiento individual para 2 personas."
-
+ 
 Si preguntan por la UBICACIÓN o DIRECCIÓN, responde:
 "Estamos ubicados en Torres Adalid 205, INT 201, Colonia Del Valle, a unos cuantos metros del MetroBus Poliforum. https://maps.app.goo.gl/SHD3EyM5Prj8JWu7A"
-
+ 
 AGENDAR CITAS:
 Por el momento SOLO agendamos citas de VALORACIÓN DE PRIMERA VEZ, y únicamente para estos dos tratamientos:
 - Implantes dentales
 - Ortodoncia (brackets)
-
+ 
 HORARIOS PARA VALORACIONES DE PRIMERA VEZ (distintos a los horarios generales de la clínica):
 - Lunes a viernes de 10:00 a 19:00 horas
 - Sábados de 10:00 a 14:00 horas
 Nunca ofrezcas ni agendes una valoración fuera de este horario, aunque el paciente lo pida.
-
+ 
 IMPORTANTE sobre horarios: Cuando el paciente diga una hora, sigue estas reglas:
 - Si dice "1", "2", "3", "4", "5", "6", "7" (sin AM/PM ni "de la mañana") → interpreta siempre como tarde: 13:00, 14:00, 15:00, 16:00, 17:00, 18:00, 19:00.
 - Si dice "10", "11", "12" → interpreta como mañana: 10:00, 11:00, 12:00.
@@ -130,9 +130,9 @@ IMPORTANTE sobre horarios: Cuando el paciente diga una hora, sigue estas reglas:
 - Si dice "de la tarde" o "PM" → convierte a formato 24 horas (ej. 3 de la tarde = 15:00).
 - Nunca interpretes ninguna hora como madrugada a menos que el paciente lo diga explícitamente.
 - Siempre confirma la hora en el resumen antes de agendar (ej. "a las 14:00 hrs").
-
+ 
 Si el paciente pide agendar cualquier otro tipo de cita (limpieza, blanqueamiento, revisión de tratamiento en curso, urgencias, etc.), NO la agendes. En su lugar, dile amablemente que por ahora solo agendamos valoraciones de primera vez para implantes y ortodoncia, y ofrece conectarlo con el equipo: "Por ahora solo puedo agendar valoraciones de primera vez para implantes dentales u ortodoncia. Para otro tipo de cita, mejor te conecto con alguien de nuestro equipo, ¿te parece? 😊"
-
+ 
 Si el paciente pide una valoración de implantes u ortodoncia (y es su primera vez, no un seguimiento):
 1. Pregunta su nombre completo (si no lo sabes ya).
 2. Confirma cuál de los dos tratamientos le interesa: implantes u ortodoncia.
@@ -147,25 +147,25 @@ Si el paciente pide una valoración de implantes u ortodoncia (y es su primera v
 - Nunca agendes fuera del horario de valoraciones (Lunes a viernes 10:00-19:00, Sábados 10:00-14:00).
 - Nunca agendes algo que no sea una valoración de primera vez de implantes u ortodoncia.
 - Nunca llames a "agendar_cita" sin que el paciente haya confirmado explícitamente el resumen primero.
-
+ 
 CANCELAR O REAGENDAR CITAS:
 Si el paciente quiere cancelar su cita:
 1. Confirma que quiere cancelar preguntando: "¿Confirmas que deseas cancelar tu cita? Esta acción no se puede deshacer 😊"
 2. Solo si confirma, usa la herramienta "cancelar_cita"
 3. Confirma con un mensaje cálido: "Tu cita ha sido cancelada. Si en algún momento quieres reagendar, aquí estamos 🦷"
-
+ 
 Si el paciente quiere reagendar su cita:
 1. Pregunta la nueva fecha y hora que prefiere (dentro del horario de valoraciones)
 2. Usa "verificar_disponibilidad" para confirmar que el nuevo horario está libre
 3. Muestra un resumen y pide confirmación antes de reagendar
 4. Solo si confirma, usa "reagendar_cita"
 5. Confirma con un mensaje cálido incluyendo la nueva fecha y hora
-
+ 
 REGLAS:
 - Siempre responde en español, con el tono mexicano descrito arriba.
 - Si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas), sé honesta y ofrece conectar con alguien del equipo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
 - Nunca inventes precios, servicios o promociones que no estén aquí.`;
-
+ 
 function getSystemPrompt() {
   const fechaHoy = new Date().toLocaleDateString('es-MX', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
@@ -177,7 +177,7 @@ function getSystemPrompt() {
   });
   return `La fecha de hoy en Ciudad de México es: ${fechaHoy}, hora actual: ${ahora}. Usa esta fecha y hora como referencia para interpretar correctamente cuando el paciente diga "mañana", "el lunes", "la próxima semana", "hoy", etc. Nunca sugieras ni agendes fechas que ya pasaron. Si el paciente pide una cita para "hoy" verifica que la hora solicitada no haya pasado ya.\n\n` + SYSTEM_PROMPT_BASE;
 }
-
+ 
 const TOOLS = [
   {
     name: 'verificar_disponibilidad',
@@ -231,14 +231,14 @@ const TOOLS = [
     },
   },
 ];
-
+ 
 const conversationHistory = {};
-
+ 
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
-
+ 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('Webhook verificado correctamente');
     res.status(200).send(challenge);
@@ -246,19 +246,19 @@ app.get('/webhook', (req, res) => {
     res.sendStatus(403);
   }
 });
-
+ 
 app.post('/webhook', async (req, res) => {
   res.sendStatus(200);
-
+ 
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
     const message = change?.value?.messages?.[0];
-
+ 
     if (!message) return;
-
+ 
     const from = message.from;
-
+ 
     if (message.type === 'audio') {
       const avisoVoz = 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊';
       await sendWhatsAppMessage(from, avisoVoz);
@@ -266,14 +266,14 @@ app.post('/webhook', async (req, res) => {
       await guardarMensaje(from, 'assistant', avisoVoz);
       return;
     }
-
+ 
     const userText = message.text?.body;
-
+ 
     if (!userText) return;
-
+ 
     console.log(`Mensaje de ${from}: ${userText}`);
     await guardarMensaje(from, 'user', userText);
-
+ 
     const lower = userText.toLowerCase().trim();
     if (lower === 'humano' || lower === 'agente') {
       const respuestaFija = 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌';
@@ -281,26 +281,26 @@ app.post('/webhook', async (req, res) => {
       await guardarMensaje(from, 'assistant', respuestaFija);
       return;
     }
-
+ 
     if (!conversationHistory[from]) conversationHistory[from] = [];
     conversationHistory[from].push({ role: 'user', content: userText });
     conversationHistory[from] = conversationHistory[from].slice(-6);
-
+ 
     const claudeReply = await askClaude(conversationHistory[from], from);
-
+ 
     conversationHistory[from].push({ role: 'assistant', content: claudeReply });
-
+ 
     await sendWhatsAppMessage(from, claudeReply);
     await guardarMensaje(from, 'assistant', claudeReply);
   } catch (err) {
     console.error('Error procesando mensaje:', err);
   }
 });
-
+ 
 // ============ LLAMAR A CLAUDE (con soporte de tools) ============
 async function askClaude(messages, telefonoUsuario) {
   let currentMessages = [...messages];
-
+ 
   for (let i = 0; i < 4; i++) {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -317,22 +317,22 @@ async function askClaude(messages, telefonoUsuario) {
         tools: TOOLS,
       }),
     });
-
+ 
     const data = await response.json();
-
+ 
     if (data.error) {
       console.error('Error de Claude API:', data.error);
       return 'Disculpa, tuve un problema técnico. ¿Puedes intentar de nuevo en un momento?';
     }
-
+ 
     if (data.stop_reason === 'tool_use') {
       // Claude puede pedir VARIAS herramientas en la misma respuesta.
       // Hay que ejecutar TODAS y devolver un tool_result por cada una,
       // o la API rechaza la conversación (esta era la causa del error original).
       const toolUseBlocks = data.content.filter((b) => b.type === 'tool_use');
-
+ 
       currentMessages.push({ role: 'assistant', content: data.content });
-
+ 
       const toolResultsContent = [];
       for (const toolUseBlock of toolUseBlocks) {
         const toolResult = await ejecutarHerramienta(toolUseBlock, telefonoUsuario);
@@ -342,27 +342,27 @@ async function askClaude(messages, telefonoUsuario) {
           content: JSON.stringify(toolResult),
         });
       }
-
+ 
       currentMessages.push({ role: 'user', content: toolResultsContent });
       continue;
     }
-
+ 
     const textBlock = data.content.find((b) => b.type === 'text');
     return textBlock ? textBlock.text : 'Disculpa, no entendí bien tu mensaje. ¿Puedes repetirlo?';
   }
-
+ 
   return 'Disculpa, tuve un problema procesando tu solicitud. ¿Puedes intentar de nuevo?';
 }
-
+ 
 async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
   const { name, input } = toolUseBlock;
-
+ 
   try {
     if (name === 'verificar_disponibilidad') {
       const disponible = await verificarDisponibilidad(input.fechaHoraInicio, input.fechaHoraFin);
       return { disponible };
     }
-
+ 
     if (name === 'agendar_cita') {
       const evento = await crearCita({
         paciente: input.paciente,
@@ -371,21 +371,21 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
         fechaHoraInicio: input.fechaHoraInicio,
         fechaHoraFin: input.fechaHoraFin,
       });
-
+ 
       if (evento.ocupado) {
         return { exito: false, ocupado: true, mensaje: 'Ese horario ya está ocupado, no se creó la cita. Pide al paciente otro horario.' };
       }
-
+ 
       await guardarCita(
         telefonoUsuario,
         input.paciente,
         input.motivo,
         input.fechaHoraInicio
       );
-
+ 
       return { exito: true, eventoId: evento.id };
     }
-
+ 
     if (name === 'cancelar_cita') {
       const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
       if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
@@ -394,7 +394,7 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
       await cancelarCitaDB(cita.id);
       return { exito: true, mensaje: `Cita de ${cita.nombre} cancelada exitosamente.` };
     }
-
+ 
     if (name === 'reagendar_cita') {
       const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
       if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
@@ -405,14 +405,14 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
       await reagendarCitaDB(cita.id, input.nuevaFechaHoraInicio);
       return { exito: true, mensaje: `Cita reagendada exitosamente para ${input.nuevaFechaHoraInicio}.` };
     }
-
+ 
     return { error: 'Herramienta no reconocida' };
   } catch (err) {
     console.error(`Error ejecutando herramienta ${name}:`, err);
     return { error: 'No se pudo completar la acción en el calendario' };
   }
 }
-
+ 
 async function sendWhatsAppMessage(to, text) {
   const response = await fetch(
     `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
@@ -429,35 +429,35 @@ async function sendWhatsAppMessage(to, text) {
       }),
     }
   );
-
+ 
   const data = await response.json();
   if (data.error) {
     console.error('Error enviando mensaje de WhatsApp:', data.error);
   }
   return data;
 }
-
+ 
 app.get('/', (req, res) => {
   res.send('Bot de WhatsApp con Claude funcionando ✅');
 });
-
+ 
 app.get('/conversaciones', async (req, res) => {
   const clave = req.query.clave;
   if (clave !== process.env.PANEL_CLAVE) {
     return res.status(401).send('<h2 style="font-family:sans-serif;padding:2rem">Acceso no autorizado. Agrega ?clave=TU_CLAVE a la URL.</h2>');
   }
-
+ 
   try {
     const mensajes = await obtenerTodosLosMensajes();
-
+ 
     const conversaciones = {};
     for (const msg of mensajes) {
       if (!conversaciones[msg.telefono]) conversaciones[msg.telefono] = [];
       conversaciones[msg.telefono].push(msg);
     }
-
+ 
     const telefonos = Object.keys(conversaciones);
-
+ 
     let html = `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -498,11 +498,11 @@ app.get('/conversaciones', async (req, res) => {
 </header>
 <div class="layout">
   <div class="sidebar" id="sidebar">`;
-
+ 
     if (telefonos.length === 0) {
       html += `<div class="vacio">Aún no hay mensajes registrados.</div>`;
     }
-
+ 
     for (const tel of telefonos) {
       const msgs = conversaciones[tel];
       const ultimo = msgs[msgs.length - 1];
@@ -514,7 +514,7 @@ app.get('/conversaciones', async (req, res) => {
         <div class="fecha">${fecha}</div>
       </div>`;
     }
-
+ 
     for (const tel of Object.keys(conversaciones)) {
       conversaciones[tel] = conversaciones[tel].map(m => ({
         ...m,
@@ -522,21 +522,21 @@ app.get('/conversaciones', async (req, res) => {
         fecha_fmt: new Date(m.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', timeZone: 'America/Mexico_City' }),
       }));
     }
-
+ 
     html += `</div>
   <div class="chat" id="chat-area">
     <div class="placeholder">← Selecciona una conversación</div>
   </div>
 </div>
-
+ 
 <script>
 const data = ${JSON.stringify(conversaciones)};
-
+ 
 function verChat(tel) {
   document.querySelectorAll('.contacto').forEach(el => el.classList.remove('activo'));
   const item = document.getElementById('c-' + tel);
   if (item) item.classList.add('activo');
-
+ 
   const msgs = data[tel] || [];
   let html = '<div class="chat-header">+' + tel + ' — ' + msgs.length + ' mensajes</div><div class="mensajes" id="msgs">';
   for (const m of msgs) {
@@ -549,14 +549,14 @@ function verChat(tel) {
 }
 </script>
 </body></html>`;
-
+ 
     res.send(html);
   } catch (err) {
     console.error('Error cargando conversaciones:', err);
     res.status(500).send('<h2 style="font-family:sans-serif;padding:2rem">Error cargando conversaciones. Verifica que la base de datos esté conectada.</h2>');
   }
 });
-
+ 
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
   try {
@@ -564,68 +564,17 @@ app.listen(PORT, async () => {
   } catch (err) {
     console.error('Error inicializando la base de datos:', err);
   }
-
+ 
   const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
   const proximasDecena = new Date(ahora);
   proximasDecena.setHours(10, 0, 0, 0);
   if (proximasDecena <= ahora) proximasDecena.setDate(proximasDecena.getDate() + 1);
-
+ 
   const msHastaLas10 = proximasDecena - ahora;
   console.log(`Próximo envío de recordatorios en ${Math.round(msHastaLas10 / 1000 / 60)} minutos`);
-
+ 
   setTimeout(() => {
     procesarRecordatorios();
     setInterval(procesarRecordatorios, 24 * 60 * 60 * 1000);
-  }, msHastaLas10);
-});
-
-<script>
-const data = ${JSON.stringify(conversaciones)};
-
-function verChat(tel) {
-  document.querySelectorAll('.contacto').forEach(el => el.classList.remove('activo'));
-  const item = document.getElementById('c-' + tel);
-  if (item) item.classList.add('activo');
-
-  const msgs = data[tel] || [];
-  let html = '<div class="chat-header">+' + tel + ' — ' + msgs.length + ' mensajes</div><div class="mensajes" id="msgs">';
-  for (const m of msgs) {
-    html += '<div class="burbuja ' + m.rol + '"><div>' + m.contenido.replace(/</g,'&lt;') + '</div><div class="hora">' + m.fecha_fmt + ' ' + m.hora_fmt + '</div></div>';
-  }
-  html += '</div>';
-  document.getElementById('chat-area').innerHTML = html;
-  const msgsDiv = document.getElementById('msgs');
-  if (msgsDiv) msgsDiv.scrollTop = msgsDiv.scrollHeight;
-}
-</script>
-</body></html>`;
-
-    res.send(html);
-  } catch (err) {
-    console.error('Error cargando conversaciones:', err);
-    res.status(500).send('<h2 style="font-family:sans-serif;padding:2rem">Error cargando conversaciones. Verifica que la base de datos esté conectada.</h2>');
-  }
-});
-
-app.listen(PORT, async () => {
-  console.log(`Servidor corriendo en puerto ${PORT}`);
-  try {
-    await inicializarDB();
-  } catch (err) {
-    console.error('Error inicializando la base de datos:', err);
-  }
-
-  // Ejecutar recordatorios todos los días a las 10:00 AM hora México
-  const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
-  const proximasDecena = new Date(ahora);
-  proximasDecena.setHours(10, 0, 0, 0);
-  if (proximasDecena <= ahora) proximasDecena.setDate(proximasDecena.getDate() + 1);
-
-  const msHastaLas10 = proximasDecena - ahora;
-  console.log(`Próximo envío de recordatorios en ${Math.round(msHastaLas10 / 1000 / 60)} minutos`);
-
-  setTimeout(() => {
-    procesarRecordatorios(); // primera ejecución
-    setInterval(procesarRecordatorios, 24 * 60 * 60 * 1000); // luego cada 24 horas
   }, msHastaLas10);
 });
