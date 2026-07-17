@@ -11,10 +11,6 @@ const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-// ===========================================
-// AQUÍ DEFINES LA PERSONALIDAD / INSTRUCCIONES
-// DEL AGENTE. Esto es "programar las respuestas".
-// ===========================================
 const SYSTEM_PROMPT_BASE = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
 
 TONO: Amable, cordial, cálido y mexicano. Cercano pero profesional. Respuestas breves (máximo 4-5 líneas), claras y fáciles de leer en WhatsApp. Puedes usar emojis con moderación (🦷😊) pero sin exagerar.
@@ -182,9 +178,6 @@ function getSystemPrompt() {
   return `La fecha de hoy en Ciudad de México es: ${fechaHoy}, hora actual: ${ahora}. Usa esta fecha y hora como referencia para interpretar correctamente cuando el paciente diga "mañana", "el lunes", "la próxima semana", "hoy", etc. Nunca sugieras ni agendes fechas que ya pasaron. Si el paciente pide una cita para "hoy" verifica que la hora solicitada no haya pasado ya.\n\n` + SYSTEM_PROMPT_BASE;
 }
 
-// ===========================================
-// DEFINICIÓN DE HERRAMIENTAS (TOOLS) PARA CLAUDE
-// ===========================================
 const TOOLS = [
   {
     name: 'verificar_disponibilidad',
@@ -239,10 +232,8 @@ const TOOLS = [
   },
 ];
 
-// Memoria simple en RAM por número de teléfono (se borra si Railway reinicia)
 const conversationHistory = {};
 
-// ============ VERIFICACIÓN DEL WEBHOOK (Meta lo llama una vez) ============
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -256,20 +247,18 @@ app.get('/webhook', (req, res) => {
   }
 });
 
-// ============ RECEPCIÓN DE MENSAJES ============
 app.post('/webhook', async (req, res) => {
-  res.sendStatus(200); // responder rápido a Meta, procesar después
+  res.sendStatus(200);
 
   try {
     const entry = req.body.entry?.[0];
     const change = entry?.changes?.[0];
     const message = change?.value?.messages?.[0];
 
-    if (!message) return; // puede ser un evento de "leído", lo ignoramos
+    if (!message) return;
 
-    const from = message.from; // número del usuario
+    const from = message.from;
 
-    // Si el mensaje es una nota de voz o audio, avisamos que no podemos escucharlo
     if (message.type === 'audio') {
       const avisoVoz = 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊';
       await sendWhatsAppMessage(from, avisoVoz);
@@ -280,12 +269,11 @@ app.post('/webhook', async (req, res) => {
 
     const userText = message.text?.body;
 
-    if (!userText) return; // ignoramos otros tipos (imágenes, stickers, etc.) por ahora
+    if (!userText) return;
 
     console.log(`Mensaje de ${from}: ${userText}`);
     await guardarMensaje(from, 'user', userText);
 
-    // Reglas fijas ANTES de llamar a Claude (opcional)
     const lower = userText.toLowerCase().trim();
     if (lower === 'humano' || lower === 'agente') {
       const respuestaFija = 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌';
@@ -294,7 +282,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Mantener historial corto por usuario (últimos 6 mensajes)
     if (!conversationHistory[from]) conversationHistory[from] = [];
     conversationHistory[from].push({ role: 'user', content: userText });
     conversationHistory[from] = conversationHistory[from].slice(-6);
@@ -314,8 +301,7 @@ app.post('/webhook', async (req, res) => {
 async function askClaude(messages, telefonoUsuario) {
   let currentMessages = [...messages];
 
-  // Loop para permitir que Claude use herramientas y luego responda con el resultado
-  for (let i = 0; i < 4; i++) { // límite de 4 vueltas por seguridad
+  for (let i = 0; i < 4; i++) {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -339,27 +325,28 @@ async function askClaude(messages, telefonoUsuario) {
       return 'Disculpa, tuve un problema técnico. ¿Puedes intentar de nuevo en un momento?';
     }
 
-    // Si Claude quiere usar una herramienta
     if (data.stop_reason === 'tool_use') {
-      const toolUseBlock = data.content.find((b) => b.type === 'tool_use');
-      const toolResult = await ejecutarHerramienta(toolUseBlock, telefonoUsuario);
+      // Claude puede pedir VARIAS herramientas en la misma respuesta.
+      // Hay que ejecutar TODAS y devolver un tool_result por cada una,
+      // o la API rechaza la conversación (esta era la causa del error original).
+      const toolUseBlocks = data.content.filter((b) => b.type === 'tool_use');
 
-      // Agregamos la respuesta de Claude (con la solicitud de tool) y el resultado al historial de ESTA llamada
       currentMessages.push({ role: 'assistant', content: data.content });
-      currentMessages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: toolUseBlock.id,
-            content: JSON.stringify(toolResult),
-          },
-        ],
-      });
-      continue; // volvemos a llamar a Claude con el resultado de la herramienta
+
+      const toolResultsContent = [];
+      for (const toolUseBlock of toolUseBlocks) {
+        const toolResult = await ejecutarHerramienta(toolUseBlock, telefonoUsuario);
+        toolResultsContent.push({
+          type: 'tool_result',
+          tool_use_id: toolUseBlock.id,
+          content: JSON.stringify(toolResult),
+        });
+      }
+
+      currentMessages.push({ role: 'user', content: toolResultsContent });
+      continue;
     }
 
-    // Respuesta final de texto
     const textBlock = data.content.find((b) => b.type === 'text');
     return textBlock ? textBlock.text : 'Disculpa, no entendí bien tu mensaje. ¿Puedes repetirlo?';
   }
@@ -367,7 +354,6 @@ async function askClaude(messages, telefonoUsuario) {
   return 'Disculpa, tuve un problema procesando tu solicitud. ¿Puedes intentar de nuevo?';
 }
 
-// ============ EJECUTAR HERRAMIENTAS ============
 async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
   const { name, input } = toolUseBlock;
 
@@ -390,7 +376,6 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
         return { exito: false, ocupado: true, mensaje: 'Ese horario ya está ocupado, no se creó la cita. Pide al paciente otro horario.' };
       }
 
-      // Guardar la cita en la base de datos para recordatorios
       await guardarCita(
         telefonoUsuario,
         input.paciente,
@@ -428,7 +413,6 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
   }
 }
 
-// ============ ENVIAR MENSAJE POR WHATSAPP ============
 async function sendWhatsAppMessage(to, text) {
   const response = await fetch(
     `https://graph.facebook.com/v21.0/${PHONE_NUMBER_ID}/messages`,
@@ -457,7 +441,6 @@ app.get('/', (req, res) => {
   res.send('Bot de WhatsApp con Claude funcionando ✅');
 });
 
-// ============ PANEL DE CONVERSACIONES ============
 app.get('/conversaciones', async (req, res) => {
   const clave = req.query.clave;
   if (clave !== process.env.PANEL_CLAVE) {
@@ -467,7 +450,6 @@ app.get('/conversaciones', async (req, res) => {
   try {
     const mensajes = await obtenerTodosLosMensajes();
 
-    // Agrupar por teléfono
     const conversaciones = {};
     for (const msg of mensajes) {
       if (!conversaciones[msg.telefono]) conversaciones[msg.telefono] = [];
@@ -533,7 +515,6 @@ app.get('/conversaciones', async (req, res) => {
       </div>`;
     }
 
-    // Preformatear fechas con zona horaria de México antes de mandar al navegador
     for (const tel of Object.keys(conversaciones)) {
       conversaciones[tel] = conversaciones[tel].map(m => ({
         ...m,
@@ -547,6 +528,56 @@ app.get('/conversaciones', async (req, res) => {
     <div class="placeholder">← Selecciona una conversación</div>
   </div>
 </div>
+
+<script>
+const data = ${JSON.stringify(conversaciones)};
+
+function verChat(tel) {
+  document.querySelectorAll('.contacto').forEach(el => el.classList.remove('activo'));
+  const item = document.getElementById('c-' + tel);
+  if (item) item.classList.add('activo');
+
+  const msgs = data[tel] || [];
+  let html = '<div class="chat-header">+' + tel + ' — ' + msgs.length + ' mensajes</div><div class="mensajes" id="msgs">';
+  for (const m of msgs) {
+    html += '<div class="burbuja ' + m.rol + '"><div>' + m.contenido.replace(/</g,'&lt;') + '</div><div class="hora">' + m.fecha_fmt + ' ' + m.hora_fmt + '</div></div>';
+  }
+  html += '</div>';
+  document.getElementById('chat-area').innerHTML = html;
+  const msgsDiv = document.getElementById('msgs');
+  if (msgsDiv) msgsDiv.scrollTop = msgsDiv.scrollHeight;
+}
+</script>
+</body></html>`;
+
+    res.send(html);
+  } catch (err) {
+    console.error('Error cargando conversaciones:', err);
+    res.status(500).send('<h2 style="font-family:sans-serif;padding:2rem">Error cargando conversaciones. Verifica que la base de datos esté conectada.</h2>');
+  }
+});
+
+app.listen(PORT, async () => {
+  console.log(`Servidor corriendo en puerto ${PORT}`);
+  try {
+    await inicializarDB();
+  } catch (err) {
+    console.error('Error inicializando la base de datos:', err);
+  }
+
+  const ahora = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+  const proximasDecena = new Date(ahora);
+  proximasDecena.setHours(10, 0, 0, 0);
+  if (proximasDecena <= ahora) proximasDecena.setDate(proximasDecena.getDate() + 1);
+
+  const msHastaLas10 = proximasDecena - ahora;
+  console.log(`Próximo envío de recordatorios en ${Math.round(msHastaLas10 / 1000 / 60)} minutos`);
+
+  setTimeout(() => {
+    procesarRecordatorios();
+    setInterval(procesarRecordatorios, 24 * 60 * 60 * 1000);
+  }, msHastaLas10);
+});
 
 <script>
 const data = ${JSON.stringify(conversaciones)};
