@@ -1,10 +1,14 @@
 const { createSign } = require('crypto');
-
 const GOOGLE_CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID;
-
 const credentials = JSON.parse(
   Buffer.from(process.env.GOOGLE_CREDENTIALS_BASE64, 'base64').toString('utf8')
 );
+
+// Color de los eventos de valoración en Google Calendar.
+// Google Calendar solo admite los 11 colores predefinidos de su paleta
+// (colorId '1' a '11'); no acepta códigos hex libres. '4' = "Flamingo",
+// el tono más parecido a rosa (salmón/coral rosado) disponible.
+const COLOR_ID_ROSA = '4';
 
 function generarJWT() {
   const now = Math.floor(Date.now() / 1000);
@@ -21,7 +25,6 @@ function generarJWT() {
   const signature = sign.sign(credentials.private_key, 'base64url');
   return `${header}.${payload}.${signature}`;
 }
-
 async function obtenerAccessToken() {
   const jwt = generarJWT();
   const res = await fetch('https://oauth2.googleapis.com/token', {
@@ -36,14 +39,12 @@ async function obtenerAccessToken() {
   if (!data.access_token) throw new Error('No se pudo obtener access token: ' + JSON.stringify(data));
   return data.access_token;
 }
-
 function agregarZonaHoraria(fechaISO) {
   if (fechaISO.includes('+') || fechaISO.includes('Z') || /[+-]\d{2}:\d{2}$/.test(fechaISO)) {
     return fechaISO;
   }
   return fechaISO + '-06:00';
 }
-
 async function verificarDisponibilidad(fechaHoraInicio, fechaHoraFin) {
   const token = await obtenerAccessToken();
   const params = new URLSearchParams({
@@ -59,7 +60,6 @@ async function verificarDisponibilidad(fechaHoraInicio, fechaHoraFin) {
   if (data.error) throw new Error(JSON.stringify(data.error));
   return data.items.length === 0;
 }
-
 async function crearCita({ paciente, telefono, motivo, fechaHoraInicio, fechaHoraFin }) {
   const libre = await verificarDisponibilidad(fechaHoraInicio, fechaHoraFin);
   if (!libre) return { ocupado: true };
@@ -69,6 +69,7 @@ async function crearCita({ paciente, telefono, motivo, fechaHoraInicio, fechaHor
     description: `Motivo: ${motivo}\nTeléfono: ${telefono}`,
     start: { dateTime: agregarZonaHoraria(fechaHoraInicio), timeZone: 'America/Mexico_City' },
     end: { dateTime: agregarZonaHoraria(fechaHoraFin), timeZone: 'America/Mexico_City' },
+    colorId: COLOR_ID_ROSA,
   };
   const res = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events`,
@@ -83,4 +84,82 @@ async function crearCita({ paciente, telefono, motivo, fechaHoraInicio, fechaHor
   return data;
 }
 
-module.exports = { crearCita, verificarDisponibilidad };
+// --- Las siguientes tres funciones faltaban por completo en este archivo,
+// aunque index.js ya las importa y las usa para cancelar/reagendar citas.
+// Sin ellas, esos dos flujos fallaban en tiempo de ejecución. ---
+
+async function buscarEventoCalendar(nombrePaciente, fechaHoraAprox) {
+  const token = await obtenerAccessToken();
+  const inicioISO = agregarZonaHoraria(fechaHoraAprox);
+  const inicio = new Date(inicioISO);
+
+  // Ventana amplia alrededor de la hora guardada en la base de datos, por si
+  // hubiera alguna pequeña diferencia de formato/segundos.
+  const desde = new Date(inicio.getTime() - 60 * 60 * 1000).toISOString();
+  const hasta = new Date(inicio.getTime() + 3 * 60 * 60 * 1000).toISOString();
+
+  const params = new URLSearchParams({
+    timeMin: desde,
+    timeMax: hasta,
+    singleEvents: 'true',
+    q: nombrePaciente,
+  });
+
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events?${params}`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data = await res.json();
+  if (data.error) throw new Error(JSON.stringify(data.error));
+  if (!data.items || data.items.length === 0) return null;
+
+  // Si hay más de un resultado (poco probable), toma el más cercano a la
+  // fecha/hora buscada.
+  const objetivo = inicio.getTime();
+  data.items.sort((a, b) => {
+    const ta = new Date(a.start?.dateTime || a.start?.date).getTime();
+    const tb = new Date(b.start?.dateTime || b.start?.date).getTime();
+    return Math.abs(ta - objetivo) - Math.abs(tb - objetivo);
+  });
+  return data.items[0];
+}
+
+async function cancelarEventoCalendar(eventId) {
+  const token = await obtenerAccessToken();
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events/${eventId}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+  );
+  // Google responde 204 sin cuerpo cuando el borrado sale bien.
+  if (res.status !== 204 && res.status !== 200) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(JSON.stringify(data.error || { status: res.status }));
+  }
+  return true;
+}
+
+async function reagendarEventoCalendar(eventId, nuevaFechaHoraInicio, nuevaFechaHoraFin) {
+  const token = await obtenerAccessToken();
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(GOOGLE_CALENDAR_ID)}/events/${eventId}`,
+    {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        start: { dateTime: agregarZonaHoraria(nuevaFechaHoraInicio), timeZone: 'America/Mexico_City' },
+        end: { dateTime: agregarZonaHoraria(nuevaFechaHoraFin), timeZone: 'America/Mexico_City' },
+      }),
+    }
+  );
+  const data = await res.json();
+  if (data.error) throw new Error(JSON.stringify(data.error));
+  return data;
+}
+
+module.exports = {
+  crearCita,
+  verificarDisponibilidad,
+  cancelarEventoCalendar,
+  buscarEventoCalendar,
+  reagendarEventoCalendar,
+};
