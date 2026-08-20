@@ -1,15 +1,25 @@
 const express = require('express');
 const { crearCita, verificarDisponibilidad, cancelarEventoCalendar, buscarEventoCalendar, reagendarEventoCalendar } = require('./calendar');
-const { inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita, obtenerCitaPorTelefono, cancelarCitaDB, reagendarCitaDB } = require('./db');
+const {
+  inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita,
+  obtenerCitaPorTelefono, cancelarCitaDB, reagendarCitaDB,
+  marcarEsperandoHumano, quitarEsperandoHumano, estaEsperandoHumano,
+} = require('./db');
 const { procesarRecordatorios } = require('./recordatorios');
 const app = express();
 app.use(express.json());
- 
+
 const PORT = process.env.PORT || 3000;
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
 const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// Número de WhatsApp del equipo (sin "+", con lada de país, ej. 5215512345678).
+// A este número se le avisa cada vez que un paciente necesita atención
+// humana. Configurable por variable de entorno; si no está definida usa el
+// mismo número que ya se daba para urgencias dentales.
+const NUMERO_EQUIPO = process.env.NUMERO_EQUIPO_WHATSAPP || '5630777771';
  
 const SYSTEM_PROMPT_BASE = `Eres Adri, la asistente virtual de Fábrica de Sonrisas, una clínica dental.
  
@@ -161,9 +171,15 @@ Si el paciente quiere reagendar su cita:
 4. Solo si confirma, usa "reagendar_cita"
 5. Confirma con un mensaje cálido incluyendo la nueva fecha y hora
  
+CONECTAR CON UN HUMANO:
+Si el paciente pide explícitamente hablar con una persona, un asesor o un humano, o si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas, quejas, casos raros que no sabes resolver):
+1. Sé honesta y ofrece conectarlo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
+2. Si el paciente pidió hablar con un humano directamente, o si acepta que lo conectes, usa la herramienta "escalar_a_humano" (con un motivo breve de qué necesita) ANTES de responderle.
+3. Después de usar la herramienta, confirma al paciente con un mensaje cálido, por ejemplo: "Listo, ya avisé a alguien de nuestro equipo, en breve te contactan por este mismo WhatsApp 🙌" — no prometas un número o tiempo que no sepas con certeza.
+4. Una vez que uses "escalar_a_humano" en la conversación, no sigas intentando resolver tú el tema ni agendar nada: el equipo se hará cargo.
+
 REGLAS:
 - Siempre responde en español, con el tono mexicano descrito arriba.
-- Si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas), sé honesta y ofrece conectar con alguien del equipo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
 - Nunca inventes precios, servicios o promociones que no estén aquí.`;
  
 function getSystemPrompt() {
@@ -230,7 +246,27 @@ const TOOLS = [
       required: ['telefono', 'nuevaFechaHoraInicio', 'nuevaFechaHoraFin'],
     },
   },
+  {
+    name: 'escalar_a_humano',
+    description: 'Marca la conversación para que la atienda una persona del equipo y le avisa por WhatsApp de inmediato. Úsala cuando: el paciente pida explícitamente hablar con una persona/asesor/humano, o cuando te pregunten algo que no está en tu información (dudas médicas específicas, quejas, casos que no sabes resolver) y el paciente acepte que lo conectes. Después de llamar esta herramienta, el equipo ya fue notificado: no vuelvas a agendar ni a inventar información, solo confirma al paciente que en breve lo contactan.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        motivo: { type: 'string', description: 'Resumen breve (1-2 frases) de qué necesita el paciente, para que el equipo sepa de qué se trata antes de contactarlo.' },
+      },
+      required: ['motivo'],
+    },
+  },
 ];
+
+// Avisa al equipo por WhatsApp que un paciente necesita atención humana, y
+// marca la conversación como pausada para que el bot deje de responderle
+// automáticamente (hasta que el equipo mande "reanudar <telefono>").
+async function escalarAHumano(telefono, motivo) {
+  await marcarEsperandoHumano(telefono, motivo);
+  const aviso = `🙋 Un paciente necesita atención humana.\n\nNúmero: +${telefono}\nMotivo: ${motivo || 'No especificado'}\n\nEl bot dejó de responderle automáticamente. Escríbele directo a este número por WhatsApp. Cuando termines, manda aquí "reanudar ${telefono}" para que el bot vuelva a atenderlo automáticamente.`;
+  await sendWhatsAppMessage(NUMERO_EQUIPO, aviso);
+}
  
 const conversationHistory = {};
  
@@ -260,36 +296,69 @@ app.post('/webhook', async (req, res) => {
     const from = message.from;
  
     if (message.type === 'audio') {
+      await guardarMensaje(from, 'user', '[nota de voz recibida]');
+      // Si ya está pausada esperando a un humano, no se contesta con el
+      // aviso automático de "no puedo escuchar audio": se deja que el
+      // equipo, que ya fue notificado, lo escuche/atienda directamente.
+      if (await estaEsperandoHumano(from)) return;
       const avisoVoz = 'No puedo escuchar mensajes de voz. Por favor, escribe tu petición y con gusto la atenderé 😊';
       await sendWhatsAppMessage(from, avisoVoz);
-      await guardarMensaje(from, 'user', '[nota de voz recibida]');
       await guardarMensaje(from, 'assistant', avisoVoz);
       return;
     }
  
     const userText = message.text?.body;
- 
+
     if (!userText) return;
- 
+
     console.log(`Mensaje de ${from}: ${userText}`);
-    await guardarMensaje(from, 'user', userText);
- 
+
     const lower = userText.toLowerCase().trim();
-    if (lower === 'humano' || lower === 'agente') {
-      const respuestaFija = 'Te voy a conectar con una persona de nuestro equipo, en breve te contactan 🙌';
+
+    // Comando del EQUIPO (no del paciente): si el mensaje llega desde el
+    // número del equipo y dice "reanudar <telefono>", se quita la pausa de
+    // ese paciente para que el bot vuelva a responderle automáticamente.
+    if (from.replace(/\D/g, '') === NUMERO_EQUIPO.replace(/\D/g, '') && lower.startsWith('reanudar')) {
+      const telefonoObjetivo = lower.replace('reanudar', '').trim().replace(/\D/g, '');
+      if (telefonoObjetivo) {
+        await quitarEsperandoHumano(telefonoObjetivo);
+        await sendWhatsAppMessage(from, `✅ Listo, el bot vuelve a responder automáticamente a +${telefonoObjetivo}.`);
+      } else {
+        await sendWhatsAppMessage(from, 'Para reanudar, manda "reanudar <numero>", ej. "reanudar 5215512345678".');
+      }
+      return;
+    }
+
+    await guardarMensaje(from, 'user', userText);
+
+    // Palabras clave directas del paciente pidiendo hablar con una persona:
+    // se resuelve al instante, sin pasar por Claude, para mayor rapidez y
+    // confiabilidad.
+    if (['humano', 'agente', 'persona', 'asesor', 'humana'].includes(lower)) {
+      await escalarAHumano(from, 'El paciente pidió hablar directamente con una persona del equipo.');
+      const respuestaFija = 'Listo, ya avisé a alguien de nuestro equipo, en breve te contactan por este mismo WhatsApp 🙌';
       await sendWhatsAppMessage(from, respuestaFija);
       await guardarMensaje(from, 'assistant', respuestaFija);
       return;
     }
- 
+
+    // Si esta conversación ya está pausada esperando a un humano, el bot no
+    // vuelve a responder automáticamente (para no chocar con la persona del
+    // equipo). El mensaje ya quedó guardado arriba para que el equipo lo vea
+    // en el panel de conversaciones.
+    if (await estaEsperandoHumano(from)) {
+      console.log(`Mensaje de ${from} ignorado por el bot: conversación esperando atención humana.`);
+      return;
+    }
+
     if (!conversationHistory[from]) conversationHistory[from] = [];
     conversationHistory[from].push({ role: 'user', content: userText });
     conversationHistory[from] = conversationHistory[from].slice(-6);
- 
+
     const claudeReply = await askClaude(conversationHistory[from], from);
- 
+
     conversationHistory[from].push({ role: 'assistant', content: claudeReply });
- 
+
     await sendWhatsAppMessage(from, claudeReply);
     await guardarMensaje(from, 'assistant', claudeReply);
   } catch (err) {
@@ -319,10 +388,14 @@ async function askClaude(messages, telefonoUsuario) {
     });
  
     const data = await response.json();
- 
+
     if (data.error) {
       console.error('Error de Claude API:', data.error);
-      return 'Disculpa, tuve un problema técnico. ¿Puedes intentar de nuevo en un momento?';
+      // Falla técnica real (no que el bot "no sepa" algo del negocio): igual
+      // se avisa al equipo y se pausa la conversación, para que un humano
+      // siga la conversación en lugar de dejar al paciente sin respuesta.
+      await escalarAHumano(telefonoUsuario, 'Falla técnica del bot (error de la API de Claude). El paciente se quedó sin respuesta automática.');
+      return 'Disculpa, tuve un problema técnico. Ya le avisé a nuestro equipo para que te contacten directamente 🙌';
     }
  
     if (data.stop_reason === 'tool_use') {
@@ -348,10 +421,17 @@ async function askClaude(messages, telefonoUsuario) {
     }
  
     const textBlock = data.content.find((b) => b.type === 'text');
-    return textBlock ? textBlock.text : 'Disculpa, no entendí bien tu mensaje. ¿Puedes repetirlo?';
+    if (textBlock) return textBlock.text;
+
+    console.error('Respuesta de Claude sin bloque de texto:', JSON.stringify(data));
+    await escalarAHumano(telefonoUsuario, 'El bot no logró generar una respuesta clara para el paciente.');
+    return 'Disculpa, no entendí bien tu mensaje. Ya le avisé a nuestro equipo para que te contacten directamente 🙌';
   }
- 
-  return 'Disculpa, tuve un problema procesando tu solicitud. ¿Puedes intentar de nuevo?';
+
+  // Se agotaron los 4 intentos de llamar herramientas sin llegar a una
+  // respuesta final: mejor avisar al equipo que dejar al paciente sin nada.
+  await escalarAHumano(telefonoUsuario, 'El bot no logró completar la solicitud del paciente después de varios intentos.');
+  return 'Disculpa, tuve un problema procesando tu solicitud. Ya le avisé a nuestro equipo para que te contacten directamente 🙌';
 }
  
 async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
@@ -405,7 +485,12 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
       await reagendarCitaDB(cita.id, input.nuevaFechaHoraInicio);
       return { exito: true, mensaje: `Cita reagendada exitosamente para ${input.nuevaFechaHoraInicio}.` };
     }
- 
+
+    if (name === 'escalar_a_humano') {
+      await escalarAHumano(telefonoUsuario, input.motivo);
+      return { exito: true, mensaje: 'Equipo notificado. Ya puedes confirmarle al paciente que en breve lo contactan.' };
+    }
+
     return { error: 'Herramienta no reconocida' };
   } catch (err) {
     console.error(`Error ejecutando herramienta ${name}:`, err);
