@@ -107,8 +107,8 @@ Si preguntan por URGENCIAS DENTALES, responde:
  
 Si preguntan por nuestros HORARIOS, responde:
 "Nuestros horarios son:
-- Lunes a viernes de 09:00 a 19:00 horas
-- Sábados de 09:00 a 15:00 horas"
+- Lunes a viernes de 10:00 a 18:00 horas
+- Sábados de 10:00 a 14:00 horas"
  
 Si preguntan por la PROMOCIÓN DE BRACKETS, responde:
 "El costo de nuestra promoción de brackets metálicos es la siguiente:
