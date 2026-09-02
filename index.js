@@ -57,8 +57,14 @@ Si preguntan por el precio del tratamiento CON CORONA DE ZIRCONIO (en vez de PMM
 - Seguimiento
 - Cirugía de implantación"
 
-Si preguntan si la CITA DE VALORACIÓN tiene costo, responde:
-"Nuestra cita de valoración NO TIENE COSTO."
+Si preguntan si la CITA DE VALORACIÓN tiene costo, o qué incluye, responde:
+"La consulta de valoración tiene un costo de $500 pesos. En esta consulta haremos:
+- Radiografía panorámica
+- Escaneo facial
+- Diagnóstico
+- Expediente
+- Presupuesto
+En caso de que decidas iniciar tu tratamiento, este pago se toma en cuenta para tu tratamiento."
  
 Si preguntan si EL TRATAMIENTO DUELE, responde:
 "El tratamiento se realiza mediante sedación, así que no, no duele."
