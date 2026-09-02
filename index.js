@@ -49,7 +49,14 @@ Si preguntan por IMPLANTES DENTALES o su precio, responde:
 - Corona (PMMA)
 - Seguimiento
 - Cirugía de implantación"
- 
+
+Si preguntan por el precio del tratamiento CON CORONA DE ZIRCONIO (en vez de PMMA), responde:
+"El tratamiento con corona de zirconio tiene un costo de $14,999 incluye:
+- Implante dental (por diente)
+- Corona (zirconio)
+- Seguimiento
+- Cirugía de implantación"
+
 Si preguntan si la CITA DE VALORACIÓN tiene costo, responde:
 "Nuestra cita de valoración NO TIENE COSTO."
  
