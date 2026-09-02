@@ -44,9 +44,9 @@ Si preguntan por nuestros servicios en general, responde:
 ¿Sobre cuál te gustaría que te dé más información?"
  
 Si preguntan por IMPLANTES DENTALES o su precio, responde:
-"El tratamiento tiene un costo de $7,999 incluye:
+"El tratamiento tiene un costo de $12,800 incluye:
 - Implante dental (por diente)
-- Corona (resina)
+- Corona (PMMA)
 - Seguimiento
 - Cirugía de implantación"
  
