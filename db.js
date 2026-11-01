@@ -34,6 +34,13 @@ async function inicializarDB() {
     ALTER TABLE citas ADD COLUMN IF NOT EXISTS cancelada BOOLEAN DEFAULT FALSE;
   `);
 
+  // Sucursal de la cita ('Torres Adalid' o 'División del Norte'). Se necesita
+  // para saber en qué calendario de Google buscar/cancelar/reagendar la cita.
+  // Las citas anteriores quedan en NULL y se tratan como Torres Adalid.
+  await pool.query(`
+    ALTER TABLE citas ADD COLUMN IF NOT EXISTS sucursal TEXT;
+  `);
+
   // Tabla para saber, por número, si la conversación está esperando a que
   // un humano del equipo tome el control. Mientras esperando_humano sea
   // TRUE, el bot deja de responder automáticamente a ese número (ver
@@ -61,7 +68,7 @@ async function guardarMensaje(telefono, rol, contenido) {
   }
 }
 // Guarda una cita agendada
-async function guardarCita(telefono, nombre, motivo, fechaHoraInicio) {
+async function guardarCita(telefono, nombre, motivo, fechaHoraInicio, sucursal) {
   // A diferencia de guardarMensaje (donde perder un mensaje de log no es
   // grave), aquí SÍ se relanza el error: si el evento ya se creó en Google
   // Calendar pero esta escritura falla en silencio, el paciente recibe un
@@ -70,8 +77,8 @@ async function guardarCita(telefono, nombre, motivo, fechaHoraInicio) {
   // nada. Mejor que el bot avise del problema que confirmar en falso.
   try {
     await pool.query(
-      'INSERT INTO citas (telefono, nombre, motivo, fecha_hora) VALUES ($1, $2, $3, $4)',
-      [telefono, nombre, motivo, fechaHoraInicio]
+      'INSERT INTO citas (telefono, nombre, motivo, fecha_hora, sucursal) VALUES ($1, $2, $3, $4, $5)',
+      [telefono, nombre, motivo, fechaHoraInicio, sucursal || null]
     );
   } catch (err) {
     console.error('Error guardando cita en DB:', err);
