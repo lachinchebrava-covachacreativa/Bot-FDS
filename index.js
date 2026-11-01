@@ -127,7 +127,10 @@ Si preguntan por BLANQUEAMIENTO o LIMPIEZA DENTAL, responde:
 "Contamos con una promoción de 2x1. Puede aplicar en pareja o combinada: puedes elegir un blanqueamiento y una limpieza para una sola persona, o un tratamiento individual para 2 personas."
  
 Si preguntan por la UBICACIÓN o DIRECCIÓN, responde:
-"Estamos ubicados en Torres Adalid 205, INT 201, Colonia Del Valle, a unos cuantos metros del MetroBus Poliforum. https://maps.app.goo.gl/SHD3EyM5Prj8JWu7A"
+"Contamos con dos sucursales:
+📍 Torres Adalid 205, INT 201, Colonia Del Valle, a unos cuantos metros del MetroBus Poliforum. https://maps.app.goo.gl/SHD3EyM5Prj8JWu7A
+📍 Avenida División del Norte 1354, Piso 2, Consultorio 202, Colonia Letrán Valle, Benito Juárez, CDMX.
+¿A cuál te queda mejor?"
  
 AGENDAR CITAS:
 Por el momento SOLO agendamos citas de VALORACIÓN DE PRIMERA VEZ, y únicamente para estos dos tratamientos:
@@ -153,11 +156,12 @@ Si el paciente pide agendar cualquier otro tipo de cita (limpieza, blanqueamient
 Si el paciente pide una valoración de implantes u ortodoncia (y es su primera vez, no un seguimiento):
 1. Pregunta su nombre completo (si no lo sabes ya).
 2. Confirma cuál de los dos tratamientos le interesa: implantes u ortodoncia.
+2b. Pregunta en cuál sucursal prefiere su valoración: "Torres Adalid" (Torres Adalid 205, INT 201, Col. Del Valle) o "División del Norte" (Av. División del Norte 1354, Piso 2, Consultorio 202, Col. Letrán Valle). Ambas tienen el mismo horario de valoraciones. No asumas la sucursal: siempre pregúntala.
 3. Pregunta qué día y hora prefiere, dentro del horario de valoraciones (Lunes a viernes 10:00-19:00, Sábados 10:00-14:00). Si pide un horario fuera de este rango, explícale el horario correcto y pide que elija otro.
-4. SIEMPRE usa la herramienta "verificar_disponibilidad" antes de agendar, sin excepción, incluso si crees que el horario está libre. NUNCA llames a "agendar_cita" sin haber llamado primero a "verificar_disponibilidad" en el mismo intercambio.
-5. Si el horario está disponible, antes de agendar, MUESTRA un resumen al paciente y pide confirmación explícita. Ejemplo: "Perfecto, ¿confirmas tu cita de valoración de [implantes/ortodoncia] para el [día] [fecha] a las [hora], a nombre de [nombre]? 😊" y espera su respuesta (sí/no) en el siguiente mensaje. NO llames a "agendar_cita" en este mismo turno.
-6. Solo cuando el paciente confirme explícitamente (ej. "sí", "confirmo", "está bien"), usa la herramienta "agendar_cita" para crearla (el motivo debe ser "Valoración de implantes" o "Valoración de ortodoncia").
-7. Si "agendar_cita" tiene éxito, manda un mensaje de confirmación final, claro y completo, con todos los datos: tratamiento, fecha, hora y nombre del paciente. Ejemplo: "¡Listo, [nombre]! Tu cita de valoración de [tratamiento] quedó agendada para el [día] [fecha] a las [hora]. Te esperamos en Torres Adalid 205, INT 201, Colonia Del Valle 🦷😊"
+4. SIEMPRE usa la herramienta "verificar_disponibilidad" (indicando la sucursal elegida, porque cada sucursal tiene su propio calendario) antes de agendar, sin excepción, incluso si crees que el horario está libre. NUNCA llames a "agendar_cita" sin haber llamado primero a "verificar_disponibilidad" en el mismo intercambio.
+5. Si el horario está disponible, antes de agendar, MUESTRA un resumen al paciente y pide confirmación explícita. Ejemplo: "Perfecto, ¿confirmas tu cita de valoración de [implantes/ortodoncia] en la sucursal [sucursal] para el [día] [fecha] a las [hora], a nombre de [nombre]? 😊" y espera su respuesta (sí/no) en el siguiente mensaje. NO llames a "agendar_cita" en este mismo turno.
+6. Solo cuando el paciente confirme explícitamente (ej. "sí", "confirmo", "está bien"), usa la herramienta "agendar_cita" para crearla (el motivo debe ser "Valoración de implantes" o "Valoración de ortodoncia", e indica la sucursal elegida).
+7. Si "agendar_cita" tiene éxito, manda un mensaje de confirmación final, claro y completo, con todos los datos: tratamiento, sucursal, fecha, hora y nombre del paciente. Ejemplo: "¡Listo, [nombre]! Tu cita de valoración de [tratamiento] quedó agendada para el [día] [fecha] a las [hora]. Te esperamos en [dirección completa de la sucursal elegida] 🦷😊" (usa la dirección completa de la sucursal que eligió el paciente, no la de la otra).
 8. Si el paciente dice que no confirma, o pide cambiar algo, vuelve a preguntar el dato correcto y repite el resumen antes de agendar.
 9. Si al intentar agendar el horario resulta ocupado (puede pasar si alguien más lo tomó mientras conversaban), avísale amablemente y pide que elija otro horario. No intentes agendar igual.
 - Siempre usa el año 2026 si el paciente no especifica año.
@@ -173,7 +177,7 @@ Si el paciente quiere cancelar su cita:
  
 Si el paciente quiere reagendar su cita:
 1. Pregunta la nueva fecha y hora que prefiere (dentro del horario de valoraciones)
-2. Usa "verificar_disponibilidad" para confirmar que el nuevo horario está libre
+2. Usa "verificar_disponibilidad" para confirmar que el nuevo horario está libre (se reagenda siempre en la misma sucursal de la cita actual; si el paciente quiere cambiar de sucursal, explícale que primero hay que cancelar la cita actual y agendar una nueva en la otra sucursal)
 3. Muestra un resumen y pide confirmación antes de reagendar
 4. Solo si confirma, usa "reagendar_cita"
 5. Confirma con un mensaje cálido incluyendo la nueva fecha y hora
@@ -210,6 +214,7 @@ const TOOLS = [
       properties: {
         fechaHoraInicio: { type: 'string', description: 'Fecha y hora de inicio en formato ISO, ej: 2026-06-25T10:00:00' },
         fechaHoraFin: { type: 'string', description: 'Fecha y hora de fin en formato ISO, ej: 2026-06-25T11:00:00 (asume 1 hora de duración si no se especifica)' },
+        sucursal: { type: 'string', enum: ['Torres Adalid', 'División del Norte'], description: 'Sucursal cuyo calendario se revisa. Cada sucursal tiene su propio calendario. Al agendar una cita nueva es obligatoria; al reagendar puedes omitirla (se usa la sucursal de la cita actual del paciente).' },
       },
       required: ['fechaHoraInicio', 'fechaHoraFin'],
     },
@@ -223,10 +228,11 @@ const TOOLS = [
         paciente: { type: 'string', description: 'Nombre completo del paciente' },
         telefono: { type: 'string', description: 'Número de teléfono del paciente' },
         motivo: { type: 'string', description: 'Debe ser exactamente "Valoración de implantes" o "Valoración de ortodoncia"' },
+        sucursal: { type: 'string', enum: ['Torres Adalid', 'División del Norte'], description: 'Sucursal que el paciente eligió para su valoración' },
         fechaHoraInicio: { type: 'string', description: 'Fecha y hora de inicio en formato ISO' },
         fechaHoraFin: { type: 'string', description: 'Fecha y hora de fin en formato ISO' },
       },
-      required: ['paciente', 'telefono', 'motivo', 'fechaHoraInicio', 'fechaHoraFin'],
+      required: ['paciente', 'telefono', 'motivo', 'sucursal', 'fechaHoraInicio', 'fechaHoraFin'],
     },
   },
   {
@@ -276,6 +282,23 @@ async function escalarAHumano(telefono, motivo) {
 }
  
 const conversationHistory = {};
+
+// Deduplicación de mensajes entrantes: WhatsApp a veces reenvía el mismo
+// webhook más de una vez (reintentos de entrega de Meta). Sin esto, un
+// mensaje duplicado se procesaba dos veces por completo, incluyendo agendar
+// la misma cita dos veces.
+const mensajesProcesados = new Set();
+const ordenMensajesProcesados = [];
+function yaProcesadoEsteMensaje(messageId) {
+  if (!messageId) return false;
+  if (mensajesProcesados.has(messageId)) return true;
+  mensajesProcesados.add(messageId);
+  ordenMensajesProcesados.push(messageId);
+  if (ordenMensajesProcesados.length > 500) {
+    mensajesProcesados.delete(ordenMensajesProcesados.shift());
+  }
+  return false;
+}
  
 app.get('/webhook', (req, res) => {
   const mode = req.query['hub.mode'];
@@ -299,7 +322,12 @@ app.post('/webhook', async (req, res) => {
     const message = change?.value?.messages?.[0];
  
     if (!message) return;
- 
+
+    if (yaProcesadoEsteMensaje(message.id)) {
+      console.log(`Mensaje duplicado ignorado (id ${message.id}), ya se había procesado.`);
+      return;
+    }
+
     const from = message.from;
  
     if (message.type === 'audio') {
@@ -446,15 +474,32 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
  
   try {
     if (name === 'verificar_disponibilidad') {
-      const disponible = await verificarDisponibilidad(input.fechaHoraInicio, input.fechaHoraFin);
+      let sucursalVerif = input.sucursal;
+      if (!sucursalVerif) {
+        // Sin sucursal explícita (ej. al reagendar), se usa la de la cita activa.
+        const citaActiva = await obtenerCitaPorTelefono(telefonoUsuario);
+        sucursalVerif = citaActiva?.sucursal;
+      }
+      const disponible = await verificarDisponibilidad(input.fechaHoraInicio, input.fechaHoraFin, sucursalVerif);
       return { disponible };
     }
  
     if (name === 'agendar_cita') {
+      // Candado anti-duplicados: si este número ya tiene una cita activa, no
+      // se crea una segunda (el paciente debe reagendar o cancelar la actual).
+      const citaExistente = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
+      if (citaExistente) {
+        return {
+          exito: false,
+          yaTieneCita: true,
+          mensaje: `Este número ya tiene una cita activa: "${citaExistente.motivo}" el ${citaExistente.fecha_hora}. No se creó una cita nueva. Si el paciente quiere cambiar el horario de ESA cita, usa "reagendar_cita" (no "agendar_cita"). Si quiere otra cita distinta, primero debe cancelarse o reagendarse la actual.`,
+        };
+      }
       const evento = await crearCita({
         paciente: input.paciente,
         telefono: input.telefono || telefonoUsuario,
         motivo: input.motivo,
+        sucursal: input.sucursal,
         fechaHoraInicio: input.fechaHoraInicio,
         fechaHoraFin: input.fechaHoraFin,
       });
@@ -467,7 +512,8 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
         telefonoUsuario,
         input.paciente,
         input.motivo,
-        input.fechaHoraInicio
+        input.fechaHoraInicio,
+        input.sucursal
       );
  
       return { exito: true, eventoId: evento.id };
@@ -476,8 +522,8 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
     if (name === 'cancelar_cita') {
       const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
       if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
-      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora);
-      if (evento) await cancelarEventoCalendar(evento.id);
+      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora, cita.sucursal);
+      if (evento) await cancelarEventoCalendar(evento.id, cita.sucursal);
       await cancelarCitaDB(cita.id);
       return { exito: true, mensaje: `Cita de ${cita.nombre} cancelada exitosamente.` };
     }
@@ -485,9 +531,9 @@ async function ejecutarHerramienta(toolUseBlock, telefonoUsuario) {
     if (name === 'reagendar_cita') {
       const cita = await obtenerCitaPorTelefono(input.telefono || telefonoUsuario);
       if (!cita) return { exito: false, mensaje: 'No se encontró ninguna cita activa para este número.' };
-      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora);
+      const evento = await buscarEventoCalendar(cita.nombre, cita.fecha_hora, cita.sucursal);
       if (evento) {
-        await reagendarEventoCalendar(evento.id, input.nuevaFechaHoraInicio, input.nuevaFechaHoraFin);
+        await reagendarEventoCalendar(evento.id, input.nuevaFechaHoraInicio, input.nuevaFechaHoraFin, cita.sucursal);
       }
       await reagendarCitaDB(cita.id, input.nuevaFechaHoraInicio);
       return { exito: true, mensaje: `Cita reagendada exitosamente para ${input.nuevaFechaHoraInicio}.` };
