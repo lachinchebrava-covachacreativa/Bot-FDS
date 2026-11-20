@@ -184,6 +184,16 @@ async function obtenerTodosLosMensajes() {
   );
   return resultado.rows;
 }
+// Lista cada teléfono que ha escrito al bot y si alguna vez agendó una cita.
+// Se usa para exportar audiencias de remarketing.
+async function obtenerTelefonosParaAudiencia() {
+  const resultado = await pool.query(`
+    SELECT m.telefono,
+           EXISTS (SELECT 1 FROM citas c WHERE c.telefono = m.telefono) AS agendo
+    FROM (SELECT DISTINCT telefono FROM mensajes) m
+  `);
+  return resultado.rows;
+}
 // Obtiene el historial de un número
 async function obtenerHistorial(telefono, limite = 20) {
   const resultado = await pool.query(
@@ -203,6 +213,7 @@ module.exports = {
   marcarRecordatorioEnviado,
   obtenerTodosLosMensajes,
   obtenerHistorial,
+  obtenerTelefonosParaAudiencia,
   marcarEsperandoHumano,
   quitarEsperandoHumano,
   estaEsperandoHumano
