@@ -4,6 +4,7 @@ const {
   inicializarDB, guardarMensaje, obtenerTodosLosMensajes, guardarCita,
   obtenerCitaPorTelefono, cancelarCitaDB, reagendarCitaDB,
   marcarEsperandoHumano, quitarEsperandoHumano, estaEsperandoHumano,
+  obtenerTelefonosParaAudiencia,
 } = require('./db');
 const { procesarRecordatorios } = require('./recordatorios');
 const app = express();
@@ -126,15 +127,24 @@ Solo pagarías tus estudios básicos de ortodoncia, pues son necesarios para ase
 Si preguntan por BLANQUEAMIENTO o LIMPIEZA DENTAL, responde:
 "Contamos con una promoción de 2x1. Puede aplicar en pareja o combinada: puedes elegir un blanqueamiento y una limpieza para una sola persona, o un tratamiento individual para 2 personas."
  
-Si preguntan por la UBICACIÓN o DIRECCIÓN, responde:
-"Contamos con dos sucursales en la Ciudad de México:
-📍 Torres Adalid 205, INT 201, Colonia Del Valle, a unos cuantos metros del MetroBus Poliforum. https://maps.app.goo.gl/SHD3EyM5Prj8JWu7A
-📍 Avenida División del Norte 1354, Piso 2, Consultorio 202, Colonia Letrán Valle, Benito Juárez, CDMX.
-¿A cuál te queda mejor?"
+Si preguntan por la UBICACIÓN o DIRECCIÓN, responde exactamente esto (sin agregar ni quitar nada):
+"Contamos con 2 ubicaciones:
+
+Torres Adalid: Torres Adalid 205-Int. 201, Colonia del Valle, Benito Juárez, 03100 Ciudad de México, CDMX
+
+Pique aquí para ver la ubicación exacta y los medios por los cuales puede llegar a la clínica: https://maps.app.goo.gl/AwMASNUy5cbkrJDf9
+
+División del Norte: Avenida División del Norte 1354 Piso 2, Consultorio 202, Letran Valle, Benito Juárez, 03650 CDMX
+
+Pique aquí para ver la ubicación exacta y los medios por los cuales puede llegar a la clínica: https://maps.app.goo.gl/PGZb8D2EpYzCgkHM6"
 
 Si preguntan si tienen SUCURSAL EN OTRA CIUDAD o estado (por ejemplo Tijuana, Guadalajara, Monterrey, Oaxaca, etc.), o dicen que viven fuera de la Ciudad de México, responde:
 "Por ahora nuestras sucursales están únicamente en la Ciudad de México. Si en algún momento te es posible visitarnos, con gusto te atendemos 😊"
 No ofrezcas atención a distancia, descuentos por viaje ni sucursales futuras: no tienes esa información.
+
+Si piden un NÚMERO DE TELÉFONO o WhatsApp para comunicarse o hablar con un ASESOR (por ejemplo "¿me das un número para hablar con alguien?", "teléfono para comunicarme"), responde:
+"Con gusto, puedes comunicarte con un asesor al 56 3077 7771 😊"
+En este caso solo da el número: NO uses la herramienta "escalar_a_humano".
  
 AGENDAR CITAS:
 Por el momento SOLO agendamos citas de VALORACIÓN DE PRIMERA VEZ, y únicamente para estos dos tratamientos:
@@ -187,7 +197,7 @@ Si el paciente quiere reagendar su cita:
 5. Confirma con un mensaje cálido incluyendo la nueva fecha y hora
  
 CONECTAR CON UN HUMANO:
-Si el paciente pide explícitamente hablar con una persona, un asesor o un humano, o si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas, quejas, casos raros que no sabes resolver):
+Si el paciente pide explícitamente hablar con una persona, un asesor o un humano (pero NO si solo pide un número de teléfono para comunicarse: en ese caso solo das el número 56 3077 7771), o si preguntan algo que no está en esta información (por ejemplo dudas médicas específicas, quejas, casos raros que no sabes resolver):
 1. Sé honesta y ofrece conectarlo, por ejemplo: "Esa información mejor te la confirma alguien de nuestro equipo, ¿quieres que te conecte? 😊"
 2. Si el paciente pidió hablar con un humano directamente, o si acepta que lo conectes, usa la herramienta "escalar_a_humano" (con un motivo breve de qué necesita) ANTES de responderle.
 3. Después de usar la herramienta, confirma al paciente con un mensaje cálido, por ejemplo: "Listo, ya avisé a alguien de nuestro equipo, en breve te contactan por este mismo WhatsApp 🙌" — no prometas un número o tiempo que no sepas con certeza.
@@ -392,7 +402,16 @@ app.post('/webhook', async (req, res) => {
 
     if (!conversationHistory[from]) conversationHistory[from] = [];
     conversationHistory[from].push({ role: 'user', content: userText });
-    conversationHistory[from] = conversationHistory[from].slice(-6);
+    // Memoria de la conversación: antes solo se conservaban los últimos 6
+    // mensajes (3 intercambios), y agendar una cita necesita bastante más
+    // (nombre, tratamiento, sucursal, día y hora, confirmación). El bot
+    // "olvidaba" los datos y los volvía a pedir una y otra vez. Ahora se
+    // conservan los últimos 30 mensajes.
+    conversationHistory[from] = conversationHistory[from].slice(-30);
+    // La API exige que el historial empiece con un mensaje del usuario.
+    while (conversationHistory[from].length > 0 && conversationHistory[from][0].role !== 'user') {
+      conversationHistory[from].shift();
+    }
 
     const claudeReply = await askClaude(conversationHistory[from], from);
 
@@ -585,7 +604,7 @@ app.get('/', (req, res) => {
  
 app.get('/conversaciones', async (req, res) => {
   const clave = req.query.clave;
-  if (clave !== process.env.PANEL_CLAVE) {
+  if (!process.env.PANEL_CLAVE || clave !== process.env.PANEL_CLAVE) {
     return res.status(401).send('<h2 style="font-family:sans-serif;padding:2rem">Acceso no autorizado. Agrega ?clave=TU_CLAVE a la URL.</h2>');
   }
  
@@ -699,6 +718,62 @@ function verChat(tel) {
   }
 });
  
+
+// ============ EXPORTAR AUDIENCIAS PARA REMARKETING (Meta Ads) ============
+// Convierte un teléfono de WhatsApp al formato que suele usar Meta para listas
+// de clientes: solo dígitos, con código de país. Los móviles mexicanos llegan
+// de WhatsApp como 521 + 10 dígitos; para Meta se usa 52 + 10 dígitos.
+function normalizarTelefonoParaMeta(telefono) {
+  const digitos = String(telefono || '').replace(/\D/g, '');
+  if (/^521\d{10}$/.test(digitos)) return '52' + digitos.slice(3);
+  if (/^\d{10}$/.test(digitos)) return '52' + digitos; // 10 dígitos sin lada de país
+  return digitos;
+}
+
+app.get('/exportar-audiencia', async (req, res) => {
+  const clave = req.query.clave;
+  if (!process.env.PANEL_CLAVE || clave !== process.env.PANEL_CLAVE) {
+    return res.status(401).send('Acceso no autorizado. Agrega ?clave=TU_CLAVE a la URL.');
+  }
+
+  try {
+    const equipo = normalizarTelefonoParaMeta(NUMERO_EQUIPO);
+    const filas = await obtenerTelefonosParaAudiencia();
+    const grupos = { no_agendaron: new Set(), agendaron: new Set(), todos: new Set() };
+    for (const fila of filas) {
+      const tel = normalizarTelefonoParaMeta(fila.telefono);
+      if (!tel || tel === equipo) continue;
+      grupos.todos.add(tel);
+      (fila.agendo ? grupos.agendaron : grupos.no_agendaron).add(tel);
+    }
+
+    const grupo = req.query.grupo;
+    if (grupo && grupos[grupo]) {
+      const csv = 'phone\n' + [...grupos[grupo]].join('\n') + '\n';
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="audiencia_${grupo}.csv"`);
+      return res.send(csv);
+    }
+
+    const enlace = (g, texto) =>
+      `<li><a href="/exportar-audiencia?clave=${encodeURIComponent(clave)}&grupo=${g}">${texto}</a> (${grupos[g].size} números)</li>`;
+    res.send(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Audiencias — Bot FDS</title></head>
+<body style="font-family:sans-serif;padding:2rem;max-width:640px">
+<h2>Audiencias para remarketing</h2>
+<p>Descarga un CSV con teléfonos (formato 52 + 10 dígitos) para subirlo en Meta Ads Manager como lista de clientes.</p>
+<ul>
+${enlace('no_agendaron', 'Escribieron pero NO agendaron cita')}
+${enlace('agendaron', 'Agendaron al menos una cita')}
+${enlace('todos', 'Todos los que han escrito')}
+</ul>
+<p style="color:#666;font-size:0.85rem">Úsalos solo si tu aviso de privacidad lo permite. No incluye el número del equipo.</p>
+</body></html>`);
+  } catch (err) {
+    console.error('Error exportando audiencia:', err);
+    res.status(500).send('Error generando la audiencia. Verifica que la base de datos esté conectada.');
+  }
+});
+
 app.listen(PORT, async () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
   try {
